@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Log Viewer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Consolas','Courier New',monospace; background: #1e1e1e; color: #d4d4d4; height: 100vh; display: flex; flex-direction: column; user-select: none; }
+
+  /* ── Toolbar ── */
+  #toolbar {
+    background: #252526; border-bottom: 1px solid #3c3c3c;
+    padding: 8px 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex-shrink: 0;
+  }
+  .tb-btn {
+    background: #0e639c; color: #fff; padding: 5px 13px;
+    border: none; border-radius: 3px; cursor: pointer; font-size: 13px;
+    font-family: inherit; white-space: nowrap;
+  }
+  .tb-btn:hover { background: #1177bb; }
+  .tb-btn.secondary { background: #3c3c3c; color: #bbb; border: 1px solid #555; }
+  .tb-btn.secondary:hover { border-color: #888; color: #fff; }
+  .tb-btn.live-on { background: #1e5a1e; color: #6ac26a; border-color: #3a8a3a; }
+
+  #search {
+    flex: 1; min-width: 200px; background: #3c3c3c; border: 1px solid #555;
+    color: #d4d4d4; padding: 5px 10px; border-radius: 3px; font-family: inherit; font-size: 13px;
+  }
+  #search:focus { outline: none; border-color: #0e639c; }
+  #search::placeholder { color: #666; }
+
+  .filter-group { display: flex; gap: 4px; }
+  .toggle-btn {
+    padding: 4px 10px; border-radius: 3px; border: 1px solid #555;
+    cursor: pointer; font-size: 12px; font-family: inherit;
+    background: #3c3c3c; color: #777; white-space: nowrap;
+  }
+  .toggle-btn.active { border-color: transparent; color: #fff; }
+  .toggle-btn[data-level="INFO"].active  { background: #1e5a1e; }
+  .toggle-btn[data-level="ERROR"].active { background: #6e1e1e; }
+  .toggle-btn[data-level="DEBUG"].active { background: #1e3e6e; }
+  .toggle-btn[data-level="WARN"].active  { background: #6e5000; }
+  .toggle-btn[data-comp="HTTP"].active   { background: #3e2266; }
+  .toggle-btn[data-comp="SLAVE"].active  { background: #1a4e4e; }
+  .toggle-btn[data-comp="BUS"].active    { background: #4e3218; }
+
+  #stats { font-size: 12px; color: #777; white-space: nowrap; }
+
+  /* ── Trace filter bar ── */
+  #trace-bar {
+    display: none; background: #162840; border-bottom: 1px solid #1e4068;
+    padding: 5px 14px; font-size: 12px; color: #6aa8d8; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  #trace-bar.show { display: flex; }
+  #trace-val { color: #9cdcfe; font-weight: bold; }
+  #trace-clear {
+    margin-left: auto; background: none; border: 1px solid #2a5a8c; color: #6aa8d8;
+    padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-family: inherit;
+  }
+  #trace-clear:hover { background: #1e3a5c; }
+
+  /* ── Drop zone ── */
+  #drop-zone {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; color: #555;
+  }
+  #drop-zone .dz-icon { font-size: 64px; opacity: 0.4; }
+  #drop-zone .dz-text { font-size: 18px; }
+  #drop-zone .dz-hint { font-size: 13px; color: #444; }
+  #drop-zone.drag-over .dz-icon { opacity: 0.8; }
+  #drop-zone.drag-over .dz-text { color: #0e639c; }
+
+  /* ── Log container ── */
+  #log-container { flex: 1; overflow-y: auto; display: none; }
+
+  /* ── Log rows ── */
+  .log-line {
+    display: flex; padding: 1px 12px; font-size: 12.5px; line-height: 1.55;
+    border-bottom: 1px solid transparent; cursor: pointer;
+  }
+  .log-line:hover { background: #2a2d2e; }
+  .log-line.expanded { background: #2a2d2e; }
+  .log-line.hidden   { display: none; }
+  .log-line.focused  { outline: 1px solid #0e639c; outline-offset: -1px; }
+
+  .col-time  { color: #608b4e; width: 168px; flex-shrink: 0; }
+  .col-level { width: 54px; flex-shrink: 0; font-weight: bold; }
+  .col-trace { color: #569cd6; width: 62px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis;
+               cursor: pointer; text-decoration: underline dotted; }
+  .col-trace:hover { color: #9cdcfe; }
+  .col-comp  { width: 52px; flex-shrink: 0; color: #ce9178; }
+  .col-dir   { width: 26px; flex-shrink: 0; color: #d7ba7d; }
+  .col-body  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .level-INFO  .col-level { color: #6ac26a; }
+  .level-ERROR .col-level { color: #f44747; }
+  .level-DEBUG .col-level { color: #569cd6; }
+  .level-WARN  .col-level { color: #e8c250; }
+  .level-ERROR { background: rgba(244,71,71,0.04); }
+
+  /* ── Detail panel ── */
+  .detail-row { display: none; background: #252526; border-bottom: 1px solid #3c3c3c; }
+  .detail-row.show { display: block; }
+
+  .detail-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 12px 4px 28px; border-bottom: 1px solid #333;
+  }
+  .detail-meta { font-size: 11px; color: #666; }
+  .detail-meta b { color: #9cdcfe; }
+  .detail-actions { margin-left: auto; display: flex; gap: 6px; }
+  .dbtn {
+    background: #333; border: 1px solid #555; color: #bbb;
+    padding: 2px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; font-family: inherit;
+  }
+  .dbtn:hover { background: #444; color: #fff; }
+  .dbtn.ok { background: #1a4e1a; color: #6ac26a; border-color: #2e6e2e; }
+
+  .detail-blocks { padding: 6px 12px 10px 28px; display: flex; flex-direction: column; gap: 6px; }
+  .blk-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; }
+  .blk-content {
+    background: #1a1a1a; border: 1px solid #333; border-radius: 3px;
+    padding: 8px 10px; white-space: pre-wrap; word-break: break-all;
+    font-size: 12px; max-height: 300px; overflow-y: auto; line-height: 1.6;
+    user-select: text;
+  }
+
+  /* JSON colors */
+  .j-key  { color: #9cdcfe; }
+  .j-str  { color: #ce9178; }
+  .j-num  { color: #b5cea8; }
+  .j-bool { color: #569cd6; }
+  .j-null { color: #569cd6; }
+
+  mark { background: #f9c74f; color: #000; border-radius: 2px; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #1e1e1e; }
+  ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #777; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button class="tb-btn" id="open-btn">📂 Відкрити (Ctrl+O)</button>
+  <button class="tb-btn secondary" id="live-btn">⟳ Live</button>
+
+  <input type="text" id="search" placeholder="Пошук (текст або /regex/)..." autocomplete="off" spellcheck="false">
+
+  <div class="filter-group" id="level-filters">
+    <button class="toggle-btn active" data-level="INFO">INFO</button>
+    <button class="toggle-btn active" data-level="ERROR">ERROR</button>
+    <button class="toggle-btn active" data-level="DEBUG">DEBUG</button>
+    <button class="toggle-btn active" data-level="WARN">WARN</button>
+  </div>
+
+  <div class="filter-group" id="comp-filters">
+    <button class="toggle-btn active" data-comp="HTTP">HTTP</button>
+    <button class="toggle-btn active" data-comp="SLAVE">SLAVE</button>
+    <button class="toggle-btn active" data-comp="BUS">BUS</button>
+    <button class="toggle-btn active" data-comp="OTHER">OTHER</button>
+  </div>
+
+  <span id="stats">Немає файлу</span>
+</div>
+
+<div id="trace-bar">
+  🔍 Trace: <span id="trace-val"></span>
+  <button id="trace-clear">✕ Очистити</button>
+</div>
+
+<div id="drop-zone">
+  <div class="dz-icon">📋</div>
+  <div class="dz-text">Відкрий лог файл</div>
+  <div class="dz-hint">Натисни Ctrl+O, кнопку "Відкрити" або перетягни файл сюди</div>
+</div>
+<div id="log-container"></div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────────────
+const api = window.electronAPI;
+
+let allLines     = [];
+let activeLevels = new Set(['INFO','ERROR','DEBUG','WARN']);
+let activeComps  = new Set(['HTTP','SLAVE','BUS','OTHER']);
+let searchQuery  = '';
+let traceFilter  = '';
+let focusedIdx   = -1;
+let currentPath  = null;
+let isLive       = false;
+
+const container  = document.getElementById('log-container');
+const dropZone   = document.getElementById('drop-zone');
+const searchEl   = document.getElementById('search');
+const statsEl    = document.getElementById('stats');
+const traceBar   = document.getElementById('trace-bar');
+const traceValEl = document.getElementById('trace-val');
+const liveBtn    = document.getElementById('live-btn');
+
+// ── Parser ──────────────────────────────────────────────────────────────
+const LINE_RE = /^(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2})\s+(INFO|ERROR|DEBUG|WARN)\s+(#[a-f0-9-]+):\s+(HTTP|SLAVE|BUS)?\s*([<>]{1,2})\s*(.*)$/;
+
+function parseLines(text) {
+  const result = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const m = line.match(LINE_RE);
+    if (m) {
+      result.push({ time: m[1], level: m[2], trace: m[3], comp: m[4] || 'OTHER', dir: m[5], body: m[6], raw: line, idx: result.length });
+    } else if (result.length) {
+      result[result.length-1].body += '\n' + line;
+      result[result.length-1].raw  += '\n' + line;
+    } else {
+      result.push({ time:'', level:'INFO', trace:'', comp:'OTHER', dir:'', body: line, raw: line, idx: result.length });
+    }
+  }
+  return result;
+}
+
+// ── JSON helpers ────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function extractJsonBlocks(str) {
+  const blocks = []; let i = 0;
+  while (i < str.length) {
+    if (str[i] === '{' || str[i] === '[') {
+      const start = i; const stack = []; let inStr = false, esc = false;
+      for (; i < str.length; i++) {
+        const c = str[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\' && inStr) { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{' || c === '[') stack.push(c);
+        else if (c === '}' || c === ']') { stack.pop(); if (!stack.length) { blocks.push({ raw: str.slice(start, i+1), start, end: i+1 }); i++; break; } }
+      }
+    } else { i++; }
+  }
+  return blocks;
+}
+
+function hlJson(str) {
+  let parsed; try { parsed = JSON.parse(str); } catch { return `<span>${escHtml(str)}</span>`; }
+  return hlVal(parsed);
+}
+
+function hlVal(v, d = 0) {
+  const p = '  '.repeat(d), p1 = '  '.repeat(d+1);
+  if (v === null)             return `<span class="j-null">null</span>`;
+  if (typeof v === 'boolean') return `<span class="j-bool">${v}</span>`;
+  if (typeof v === 'number')  return `<span class="j-num">${v}</span>`;
+  if (typeof v === 'string')  return `<span class="j-str">"${escHtml(v)}"</span>`;
+  if (Array.isArray(v)) {
+    if (!v.length) return `<span>[]</span>`;
+    return `<span>[\n${v.map(x=>`${p1}${hlVal(x,d+1)}`).join(',\n')}\n${p}]</span>`;
+  }
+  const keys = Object.keys(v);
+  if (!keys.length) return `<span>{}</span>`;
+  return `<span>{\n${keys.map(k=>`${p1}<span class="j-key">"${escHtml(k)}"</span>: ${hlVal(v[k],d+1)}`).join(',\n')}\n${p}}</span>`;
+}
+
+function buildDetailHTML(line) {
+  const blocks = extractJsonBlocks(line.raw);
+  if (!blocks.length) return `<div class="blk-content">${escHtml(line.raw)}</div>`;
+  let html = '';
+  const prefix = line.raw.slice(0, blocks[0].start).trim();
+  if (prefix) html += `<div><div class="blk-label">Рядок</div><div class="blk-content">${escHtml(prefix)}</div></div>`;
+  blocks.forEach((b, i) => {
+    const lbl = blocks.length === 1 ? 'JSON' : (i === 0 ? 'Body' : `Block ${i+1}`);
+    html += `<div><div class="blk-label">${lbl}</div><div class="blk-content">${hlJson(b.raw)}</div></div>`;
+  });
+  return html;
+}
+
+function hlText(text, q) {
+  if (!q) return escHtml(text);
+  try {
+    const re = q.startsWith('/') && q.endsWith('/') ? new RegExp(q.slice(1,-1),'gi') : new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');
+    return escHtml(text).replace(re, m => `<mark>${m}</mark>`);
+  } catch { return escHtml(text); }
+}
+
+// ── Visibility ──────────────────────────────────────────────────────────
+function isVisible(line) {
+  const ck = ['HTTP','SLAVE','BUS'].includes(line.comp) ? line.comp : 'OTHER';
+  if (!activeLevels.has(line.level) || !activeComps.has(ck)) return false;
+  if (traceFilter && line.trace !== traceFilter) return false;
+  if (searchQuery) {
+    try {
+      const re = searchQuery.startsWith('/') && searchQuery.endsWith('/')
+        ? new RegExp(searchQuery.slice(1,-1), 'i')
+        : new RegExp(searchQuery.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'i');
+      if (!re.test(line.raw)) return false;
+    } catch { if (!line.raw.includes(searchQuery)) return false; }
+  }
+  return true;
+}
+
+// ── Render ──────────────────────────────────────────────────────────────
+function render() {
+  const frag = document.createDocumentFragment();
+  let visible = 0;
+
+  for (const line of allLines) {
+    const show = isVisible(line);
+    if (show) visible++;
+
+    const row = document.createElement('div');
+    row.className = `log-line level-${line.level}${show ? '' : ' hidden'}`;
+    row.dataset.idx = line.idx;
+
+    row.innerHTML =
+      `<span class="col-time">${line.time}</span>` +
+      `<span class="col-level">${line.level}</span>` +
+      `<span class="col-trace" title="${escHtml(line.trace)}" data-trace="${escHtml(line.trace)}">${escHtml(line.trace.slice(1,9))}</span>` +
+      `<span class="col-comp">${escHtml(line.comp)}</span>` +
+      `<span class="col-dir">${escHtml(line.dir)}</span>` +
+      `<span class="col-body">${hlText(line.body.split('\n')[0], searchQuery)}</span>`;
+
+    const detail = document.createElement('div');
+    detail.className = 'detail-row';
+    detail.innerHTML =
+      `<div class="detail-header">` +
+        `<span class="detail-meta">${line.time} · <b>${escHtml(line.trace)}</b></span>` +
+        `<div class="detail-actions"><button class="dbtn copy-btn">📋 Copy</button></div>` +
+      `</div>` +
+      `<div class="detail-blocks">${buildDetailHTML(line)}</div>`;
+
+    const rawSnapshot = line.raw;
+    detail.querySelector('.copy-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(rawSnapshot);
+      const btn = e.currentTarget;
+      btn.textContent = '✓ Copied'; btn.classList.add('ok');
+      setTimeout(() => { btn.textContent = '📋 Copy'; btn.classList.remove('ok'); }, 1400);
+    });
+
+    row.addEventListener('click', e => {
+      if (e.target.classList.contains('col-trace')) return;
+      const open = detail.classList.toggle('show');
+      row.classList.toggle('expanded', open);
+      setFocus(line.idx);
+    });
+
+    row.querySelector('.col-trace').addEventListener('click', e => {
+      e.stopPropagation();
+      if (!line.trace) return;
+      traceFilter = line.trace;
+      traceValEl.textContent = line.trace;
+      traceBar.classList.add('show');
+      applyVisibility();
+    });
+
+    frag.appendChild(row);
+    frag.appendChild(detail);
+  }
+
+  container.innerHTML = '';
+  container.appendChild(frag);
+  updateStats(visible);
+}
+
+function applyVisibility() {
+  let visible = 0;
+  container.querySelectorAll('.log-line').forEach(row => {
+    const show = isVisible(allLines[+row.dataset.idx]);
+    row.classList.toggle('hidden', !show);
+    if (show) visible++;
+  });
+  updateStats(visible);
+}
+
+function updateStats(visible) {
+  const errors = allLines.filter(l => l.level === 'ERROR').length;
+  statsEl.textContent = `${visible} / ${allLines.length} рядків` + (errors ? ` · ⚠ ${errors} ERROR` : '');
+}
+
+// ── Load ────────────────────────────────────────────────────────────────
+function loadText(text, keepScroll = false) {
+  const wasAtBottom = keepScroll && (container.scrollHeight - container.clientHeight - container.scrollTop < 60);
+  allLines = parseLines(text);
+  focusedIdx = -1;
+  dropZone.style.display = 'none';
+  container.style.display = 'block';
+  render();
+  if (wasAtBottom) container.scrollTop = container.scrollHeight;
+}
+
+async function openFile() {
+  const filePath = await api.openFile();
+  if (!filePath) return;
+  currentPath = filePath;
+  const text = await api.readFile(filePath);
+  loadText(text);
+  document.title = `Log Viewer — ${filePath.split('\\').pop()}`;
+  if (isLive) startLive();
+}
+
+function startLive() {
+  if (!currentPath) return;
+  api.watchFile(currentPath, (content) => loadText(content, true));
+  isLive = true;
+  liveBtn.textContent = '⟳ Live ON';
+  liveBtn.classList.add('live-on');
+}
+
+function stopLive() {
+  api.unwatchFile();
+  isLive = false;
+  liveBtn.textContent = '⟳ Live';
+  liveBtn.classList.remove('live-on');
+}
+
+// ── Keyboard nav ────────────────────────────────────────────────────────
+function setFocus(idx) {
+  focusedIdx = idx;
+  container.querySelectorAll('.log-line.focused').forEach(el => el.classList.remove('focused'));
+  const el = container.querySelector(`.log-line[data-idx="${idx}"]`);
+  if (el) { el.classList.add('focused'); el.scrollIntoView({ block: 'nearest' }); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target === searchEl) return;
+  if (e.key === 'Escape') {
+    if (traceFilter) { traceFilter = ''; traceBar.classList.remove('show'); applyVisibility(); return; }
+    container.querySelectorAll('.detail-row.show').forEach(d => {
+      d.classList.remove('show'); d.previousElementSibling?.classList.remove('expanded');
+    });
+    return;
+  }
+  const rows = [...container.querySelectorAll('.log-line:not(.hidden)')];
+  if (!rows.length) return;
+  if (e.key === 'j' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    const cur = rows.findIndex(r => +r.dataset.idx === focusedIdx);
+    const next = rows[Math.min(cur + 1, rows.length - 1)];
+    if (next) setFocus(+next.dataset.idx);
+  } else if (e.key === 'k' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const cur = rows.findIndex(r => +r.dataset.idx === focusedIdx);
+    const prev = rows[Math.max(cur - 1, 0)];
+    if (prev) setFocus(+prev.dataset.idx);
+  } else if (e.key === 'Enter' && focusedIdx >= 0) {
+    container.querySelector(`.log-line[data-idx="${focusedIdx}"]`)?.click();
+  }
+});
+
+// ── Events ──────────────────────────────────────────────────────────────
+document.getElementById('open-btn').addEventListener('click', openFile);
+api.onMenuOpen(openFile);
+
+liveBtn.addEventListener('click', () => {
+  if (isLive) { stopLive(); return; }
+  if (!currentPath) { openFile().then(() => startLive()); return; }
+  startLive();
+});
+
+let searchTimer;
+searchEl.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { searchQuery = searchEl.value; applyVisibility(); }, 180);
+});
+
+document.getElementById('level-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.toggle-btn[data-level]');
+  if (!btn) return;
+  const l = btn.dataset.level;
+  activeLevels.has(l) ? activeLevels.delete(l) : activeLevels.add(l);
+  btn.classList.toggle('active', activeLevels.has(l));
+  applyVisibility();
+});
+
+document.getElementById('comp-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.toggle-btn[data-comp]');
+  if (!btn) return;
+  const c = btn.dataset.comp;
+  activeComps.has(c) ? activeComps.delete(c) : activeComps.add(c);
+  btn.classList.toggle('active', activeComps.has(c));
+  applyVisibility();
+});
+
+document.getElementById('trace-clear').addEventListener('click', () => {
+  traceFilter = ''; traceBar.classList.remove('show'); applyVisibility();
+});
+
+// Drag & drop (FileReader works in Electron too)
+document.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+document.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+document.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  currentPath = file.path;
+  const reader = new FileReader();
+  reader.onload = ev => { loadText(ev.target.result); document.title = `Log Viewer — ${file.name}`; };
+  reader.readAsText(file, 'utf-8');
+});
+</script>
+</body>
+</html>

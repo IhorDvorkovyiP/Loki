@@ -1,0 +1,26 @@
+{
+  "name": "log-viewer",
+  "version": "1.0.0",
+  "description": "Pharmbase server log viewer",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.proxima.loki",
+    "productName": "Loki",
+    "directories": {
+      "output": "dist"
+    },
+    "files": ["main.js", "preload.js", "src/**/*"],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "signAndEditExecutable": false
+    }
+  }
+}
