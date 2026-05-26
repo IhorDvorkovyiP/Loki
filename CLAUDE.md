@@ -62,6 +62,7 @@ log-viewer-app/
 4. **Пошук в body** — підсвічує матчі в JSON view
 5. **Сортування** — клік по заголовку колонки (Час/Рівень/Comp)
 6. **JSON Diff** — 📌 Pin рядок A, вибери рядок B → вкладка Diff
+7. **Авто-оновлення** — `electron-updater` перевіряє GitHub Releases при запуску, завантажує у фоні, пропонує перезапустити. Потребує: перейти з `portable` на `nsis` target, додати `electron-updater`, налаштувати `publish` в package.json → GitHub. Проблема: NSIS білд вимагає прав на symlinks (запуск від адміна або Developer Mode в Windows).
 
 Щоб переключитись на нові фічі — в `main.js` змінити:
 ```js
