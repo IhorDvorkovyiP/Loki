@@ -1,0 +1,21 @@
+2024/01/15 14:23:45 INFO #abc12345-0001: HTTP >>> {"action":"login","user":"admin","password":"***"}
+2024/01/15 14:23:45 INFO #abc12345-0001: HTTP <-- {"status":200,"token":"eyJhbGciOiJIUzI1NiJ9","user":"admin"}
+2024/01/15 14:23:46 INFO #abc12345-0001: BUS {"action":"session.create","userId":1,"online":true}
+2024/01/15 14:23:47 ERROR #def67890-0002: HTTP >>> {"action":"getOrder","id":999}
+2024/01/15 14:23:47 ERROR #def67890-0002: HTTP <-- {"status":404,"error":"Not found","id":999}
+2024/01/15 14:23:48 WARN #abc12345-0001: BUS {"event":"timeout","after":5000,"component":"slave"}
+2024/01/15 14:23:49 INFO #xyz99999-0003: SLAVE {"action":"ping","online":true,"version":"2.1.0"}
+2024/01/15 14:23:50 DEBUG #xyz99999-0003: FRONT {"action":"render","component":"Table","rows":42}
+2024/01/15 14:23:51 INFO #aaa11111-0004: {"action":"health-check","status":"ok","uptime":3600}
+2024/01/15 14:23:52 WARN #bbb22222-0005: MASTER {"event":"connectionLimit","current":95,"max":100}
+2024/01/15 14:23:53 ERROR #ccc33333-0006: HTTP >>> {"action":"login","user":"hacker","attempts":99}
+2024/01/15 14:23:54 ERROR #ccc33333-0006: HTTP <-- {"status":403,"error":"Blocked","reason":"too_many_attempts"}
+2024/01/15 14:23:55 INFO #abc12345-0001: HTTP >>> {"action":"getProducts","page":1,"limit":20}
+2024/01/15 14:23:55 INFO #abc12345-0001: HTTP <-- {"status":200,"count":20,"total":150}
+2024/01/15 14:23:56 WARN #eee55555-0007: SLAVE {"event":"online","status":true,"delay":120}
+2024/01/15 14:23:57 INFO #fff66666-0008: HTTP >>> {"action":"createReceipt","items":3,"total":245.50}
+2024/01/15 14:23:58 INFO #fff66666-0008: HTTP <-- {"status":201,"receiptId":"REC-001","fiscal":true}
+2024/01/15 14:23:59 ERROR #ggg77777-0009: BUS {"error":"connection refused","host":"slave-02","port":5432}
+2024/01/15 14:24:00 INFO #hhh88888-0010: MASTER {"action":"sync","slaves":5,"status":"complete"}
+2024/01/15 14:24:01 WARN #iii99999-0011: HTTP >>> {"action":"online","check":"ping"}
+2024/01/15 14:24:01 INFO #iii99999-0011: HTTP <-- {"status":200,"online":true}

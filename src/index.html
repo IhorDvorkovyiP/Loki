@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loki</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='10,58 20,12 42,42' fill='%23D4800A'/%3E%3Cpolygon points='90,58 80,12 58,42' fill='%23D4800A'/%3E%3Cpolygon points='15,53 22,20 38,42' fill='%23FF9898'/%3E%3Cpolygon points='85,53 78,20 62,42' fill='%23FF9898'/%3E%3Ccircle cx='50' cy='62' r='36' fill='%23D4800A'/%3E%3Cpath d='M24,58 Q35,44 46,58' stroke='%232A0A00' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M54,58 Q65,44 76,58' stroke='%232A0A00' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='20' cy='70' r='9' fill='%23FF7070' opacity='0.35'/%3E%3Ccircle cx='80' cy='70' r='9' fill='%23FF7070' opacity='0.35'/%3E%3Cellipse cx='50' cy='72' rx='6' ry='5' fill='%23FF5070'/%3E%3Cpath d='M40,80 Q50,90 60,80' stroke='%23903000' stroke-width='3.5' fill='none' stroke-linecap='round'/%3E%3Cline x1='2' y1='67' x2='40' y2='72' stroke='%23FFF0B0' stroke-width='2.2' opacity='0.85'/%3E%3Cline x1='2' y1='78' x2='40' y2='78' stroke='%23FFF0B0' stroke-width='2.2' opacity='0.85'/%3E%3Cline x1='98' y1='67' x2='60' y2='72' stroke='%23FFF0B0' stroke-width='2.2' opacity='0.85'/%3E%3Cline x1='98' y1='78' x2='60' y2='78' stroke='%23FFF0B0' stroke-width='2.2' opacity='0.85'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="toolbar">
+    <div id="brand">
+      <img src="../assets/cat.jpg" width="28" height="28" style="border-radius:4px;object-fit:cover;">
+      <span id="brand-name">Loki</span>
+    </div>
+    <button id="open-btn" class="tb-btn">&#128194; Відкрити</button>
+    <button id="recent-btn" class="tb-btn secondary" title="Недавні файли">&#9660;</button>
+    <button id="live-btn" class="tb-btn secondary">&#8635; Live</button>
+    <input id="search" placeholder="Пошук (текст або /regex/)..." autocomplete="off">
+    <span id="search-count"></span>
+    <div id="level-filters">
+      <button class="toggle-btn active" data-level="INFO">INFO</button>
+      <button class="toggle-btn active" data-level="ERROR">ERROR</button>
+      <button class="toggle-btn active" data-level="WARN">WARN</button>
+    </div>
+    <button id="exclude-btn" class="tb-btn secondary" title="Виключити рядки що містять текст">&#8856; Виключити</button>
+    <div id="font-ctrl">
+      <button id="font-dec" class="tb-btn secondary" title="Зменшити шрифт">A−</button>
+      <span id="font-size-val">13</span>
+      <button id="font-inc" class="tb-btn secondary" title="Збільшити шрифт">A+</button>
+    </div>
+    <span id="stats"></span>
+  </div>
+
+  <div id="selection-bar">
+    <span id="selection-count">0 вибрано</span>
+    <button id="show-selected-btn" class="tb-btn secondary">&#128065; Тільки ці</button>
+    <button id="export-selected-btn" class="tb-btn secondary">&#128190; Зберегти .txt</button>
+    <button id="clear-selection-btn" class="tb-btn secondary">&#10005; Скинути</button>
+  </div>
+  <div id="trace-bar">
+    &#9889; Підсвічено: <span id="trace-val"></span>
+    <button id="trace-clear">&#10005;</button>
+  </div>
+
+  <div id="drop-zone">
+    <div>&#128228; Перетягніть лог-файл сюди</div>
+    <div class="hint">або натисніть "Відкрити" &nbsp;·&nbsp; .log&nbsp; .txt&nbsp; .gz&nbsp; .zip</div>
+  </div>
+
+  <div id="workspace">
+    <div id="list-pane">
+      <div id="file-tabs"></div>
+      <div id="list-header">
+        <span class="col-time  col-hdr" data-col="time">Час<span class="col-rh"></span></span>
+        <span class="col-level col-hdr" data-col="level">Рівень<span class="col-rh"></span></span>
+        <span class="col-trace col-hdr" data-col="trace">Trace<span class="col-rh"></span></span>
+        <span class="col-comp  col-hdr" data-col="comp">Comp<span class="col-rh"></span></span>
+        <span class="col-dir   col-hdr" data-col="dir">Dir<span class="col-rh"></span></span>
+        <span class="col-body">Повідомлення</span>
+        <button id="wrap-btn" title="Перенесення рядків (W)">&#8660;</button>
+        <button id="col-lock-btn" title="Заблокувати ширину колонок">&#128275;</button>
+        <button id="col-cfg-btn" title="Показати/сховати колонки">&#9783;</button>
+      </div>
+      <div id="log-container">
+        <div id="vs-spacer"></div>
+      </div>
+    </div>
+    <div id="resize-handle">
+      <button id="detail-toggle-btn" title="Згорнути/Розгорнути деталі">▶</button>
+    </div>
+    <div id="detail-pane">
+      <div id="detail-toolbar">
+        <input id="body-search" placeholder="Пошук в body...">
+        <div id="detail-actions">
+          <button id="save-btn" class="daction-btn" title="Зберегти запис">&#9734;</button>
+          <button id="saved-tab-btn" class="daction-btn" title="Збережені записи">&#9733; <span id="saved-count">0</span></button>
+          <button id="copy-json-btn" class="daction-btn" title="Копіювати JSON body (Ctrl+Shift+C)">&#9003; {}</button>
+          <button id="copy-raw-btn" class="daction-btn" title="Копіювати повний рядок">&#9003; ¶</button>
+          <button id="expand-all-btn" class="daction-btn" title="Розгорнути все">&#8862;</button>
+          <button id="collapse-all-btn" class="daction-btn" title="Згорнути все">&#8863;</button>
+        </div>
+      </div>
+      <div id="detail-view">
+        <div id="detail-meta"></div>
+        <div id="detail-content"></div>
+      </div>
+      <div id="saved-pane"></div>
+    </div>
+  </div>
+
+  <!-- Welcome / Help modal -->
+  <div id="welcome-overlay">
+    <div id="welcome-modal">
+      <div id="welcome-header">
+        <span id="welcome-logo">⚡ Loki</span>
+        <span id="welcome-subtitle">v3.0 · Переглядач лог-файлів</span>
+      </div>
+      <div id="welcome-body">
+
+        <div class="wg">
+          <div class="wg-title">📂 Відкриття файлів</div>
+          <div class="wg-rows">
+            <div class="wr"><kbd>Ctrl+O</kbd> або кнопка <b>Відкрити</b> — відкрити файл</div>
+            <div class="wr"><b>Drag &amp; Drop</b> — перетягни файл прямо у вікно</div>
+            <div class="wr"><b>▾</b> поруч з "Відкрити" — нещодавні файли (до 10 штук)</div>
+            <div class="wr"><b>+</b> у вкладках — відкрити у новій вкладці</div>
+            <div class="wr">Формати: <code>.log</code> <code>.txt</code> <code>.gz</code> <code>.zip</code></div>
+            <div class="wr">ZIP з кількома файлами — з'явиться список для вибору</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">🔄 Live mode</div>
+          <div class="wg-rows">
+            <div class="wr">При відкритті <code>.log</code> / <code>.txt</code> — <b>Live ON вмикається автоматично</b></div>
+            <div class="wr">Polling кожні <b>800 мс</b> — надійно працює навіть якщо сервер тримає файл відкритим</div>
+            <div class="wr">Читає тільки <b>нові байти</b> — швидко навіть для файлів &gt;100 МБ</div>
+            <div class="wr">Авто-скрол вниз якщо ти був внизу списку</div>
+            <div class="wr">Ротація / truncate файлу — автоматично перезавантажує весь вміст</div>
+            <div class="wr">Клік <b>⟳ Live</b> — вмикти / вимкнути вручну</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">🔍 Пошук і фільтрація</div>
+          <div class="wg-rows">
+            <div class="wr">Поле пошуку — простий текст або <code>/regex/i</code></div>
+            <div class="wr"><kbd>F3</kbd> / <kbd>Shift+F3</kbd> — наступний / попередній збіг</div>
+            <div class="wr">Лічильник <b>N збігів · pos/N</b> — показує позицію у результатах</div>
+            <div class="wr"><b>INFO / ERROR / WARN</b> — клік = соло-режим, повторний = всі</div>
+            <div class="wr"><b>⊘ Виключити</b> — прибрати рядки що містять певний текст (через кому кілька)</div>
+            <div class="wr">Виключення зберігаються між сесіями</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">🖱️ Виділення рядків</div>
+          <div class="wg-rows">
+            <div class="wr"><b>Клік</b> — відкрити деталі рядка в правій панелі</div>
+            <div class="wr"><kbd>Ctrl</kbd>+клік — мульти-вибір рядків</div>
+            <div class="wr"><kbd>Shift</kbd>+клік — виділити діапазон від попереднього кліку</div>
+            <div class="wr"><b>👁 Тільки ці</b> — залишити у списку тільки виділені рядки</div>
+            <div class="wr"><b>💾 Зберегти .txt</b> — експортувати виділені в текстовий файл</div>
+            <div class="wr"><kbd>↑</kbd> / <kbd>↓</kbd> — навігація між рядками</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">🔖 Закладки</div>
+          <div class="wg-rows">
+            <div class="wr"><kbd>B</kbd> — поставити / зняти закладку (EN, UA, RU розкладка — однакова фізична клавіша)</div>
+            <div class="wr"><kbd>F2</kbd> / <kbd>Shift+F2</kbd> — наступна / попередня закладка</div>
+            <div class="wr">Рядки з закладкою підсвічуються у списку</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">🟡 Trace — підсвітка запиту</div>
+          <div class="wg-rows">
+            <div class="wr">Клік по <b>trace</b> (#abc…) — підсвітити <b>всі рядки того ж запиту</b> жовтим</div>
+            <div class="wr">Повторний клік по trace або <b>✕</b> у trace-bar — скинути підсвітку</div>
+            <div class="wr"><kbd>Escape</kbd> — скинути trace або виділення рядків</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">📌 Права панель — JSON деталі</div>
+          <div class="wg-rows">
+            <div class="wr">Клік по рядку — розгортає повний JSON з синтаксичною підсвіткою</div>
+            <div class="wr"><b>Пошук у body</b> — підсвічує збіги прямо у JSON-дереві</div>
+            <div class="wr"><b>⊞ / ⊟</b> — розгорнути / згорнути всі вузли JSON одним кліком</div>
+            <div class="wr"><b>⌫ {}</b> — копіювати тільки JSON body &nbsp;|&nbsp; <kbd>Ctrl+Shift+C</kbd></div>
+            <div class="wr"><b>⌫ ¶</b> — копіювати повний рядок логу як є</div>
+            <div class="wr">Панель можна приховати кнопкою <b>▶</b> / розгорнути <b>◀</b></div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">⭐ Збережені &amp; Порівняння</div>
+          <div class="wg-rows">
+            <div class="wr"><b>☆</b> — зберегти поточний рядок; <b>★</b> — вже збережено</div>
+            <div class="wr">Збережені з'являються у панелі <b>★ N</b> — перегляд по вкладках</div>
+            <div class="wr">Збережи <b>2+ записи</b> → кнопка <b>⟺ Порівняти</b> — diff двох JSON body</div>
+            <div class="wr">Зручно порівнювати <b>запит і відповідь</b> або два різних запити</div>
+            <div class="wr">Порівняння відкривається в окремому вікні</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">⚙️ Відображення</div>
+          <div class="wg-rows">
+            <div class="wr"><kbd>W</kbd> або <b>⇔</b> — wrap mode: <b>динамічна висота</b> рядків (повний текст без обрізки)</div>
+            <div class="wr"><b>A− / A+</b> — розмір шрифту 9–20 px (впливає і на список, і на JSON-панель)</div>
+            <div class="wr"><b>🔓 / 🔒</b> — заблокувати ширину колонок від випадкового зсуву</div>
+            <div class="wr">Колонки тягнуться за заголовок; <b>⊟ → ↺ Скинути ширини</b> — повернути дефолт</div>
+            <div class="wr"><b>⊟</b> — сховати/показати окремі колонки (Час, Рівень, Trace, Comp, Dir)</div>
+            <div class="wr">Ширина правої/лівої панелей тягнеться за розділювач посередині</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">🗂️ Вкладки</div>
+          <div class="wg-rows">
+            <div class="wr"><b>+</b> — відкрити файл у новій вкладці</div>
+            <div class="wr">Кожна вкладка зберігає: файл, скрол, виділений рядок, live-стан, закладки</div>
+            <div class="wr"><b>×</b> на вкладці — закрити (остання вкладка просто скидається)</div>
+          </div>
+        </div>
+
+        <div class="wg">
+          <div class="wg-title">⌨️ Всі гарячі клавіші</div>
+          <div class="wg-rows">
+            <div class="wr"><kbd>Ctrl+O</kbd> — відкрити файл</div>
+            <div class="wr"><kbd>F3</kbd> / <kbd>Shift+F3</kbd> — наступний / попередній збіг пошуку</div>
+            <div class="wr"><kbd>↑</kbd> / <kbd>↓</kbd> — навігація між рядками</div>
+            <div class="wr"><kbd>B</kbd> — закладка &nbsp;|&nbsp; <kbd>F2</kbd> / <kbd>Shift+F2</kbd> — між закладками</div>
+            <div class="wr"><kbd>W</kbd> — wrap mode &nbsp;|&nbsp; <kbd>Ctrl+Shift+C</kbd> — копіювати JSON body</div>
+            <div class="wr"><kbd>Escape</kbd> — скинути trace / виділення &nbsp;|&nbsp; <kbd>F1</kbd> — ця довідка</div>
+          </div>
+        </div>
+
+      </div>
+      <div id="welcome-footer">
+        <span id="welcome-hint">Всі налаштування зберігаються автоматично між сесіями</span>
+        <button id="welcome-close">Зрозуміло! 👍</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

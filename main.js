@@ -1,8 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
-const path = require('path');
-const fs   = require('fs');
+const path   = require('path');
+const fs     = require('fs');
+const zlib   = require('zlib');
+const { promisify } = require('util');
+const gunzip = promisify(zlib.gunzip);
 
 let mainWindow = null;
+let diffWindow = null;
 let watcher    = null;
 
 function createWindow() {
@@ -12,6 +16,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 500,
     title: 'Loki',
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -20,7 +25,7 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
   buildMenu();
 }
 
@@ -57,6 +62,12 @@ function buildMenu() {
       label: 'Help',
       submenu: [
         {
+          label: 'Інструкції / Features',
+          accelerator: 'F1',
+          click: () => mainWindow.webContents.send('show-help'),
+        },
+        { type: 'separator' },
+        {
           label: 'Open logs folder',
           click: () => shell.openPath('C:\\Proxima\\preprod\\win64\\server\\log\\server\\primary'),
         },
@@ -73,7 +84,7 @@ ipcMain.handle('open-file-dialog', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Open log file',
     filters: [
-      { name: 'Log files', extensions: ['log', 'txt'] },
+      { name: 'Log & archive files', extensions: ['log', 'txt', 'gz', 'zip'] },
       { name: 'All files', extensions: ['*'] },
     ],
     properties: ['openFile'],
@@ -83,28 +94,197 @@ ipcMain.handle('open-file-dialog', async () => {
 });
 
 ipcMain.handle('read-file', async (_event, filePath) => {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.gz') {
+    const compressed = fs.readFileSync(filePath);
+    const decompressed = await gunzip(compressed);
+    return decompressed.toString('utf8');
+  }
   return fs.readFileSync(filePath, 'utf-8');
 });
 
+// ── ZIP support ───────────────────────────────────────────────────────────
+
+ipcMain.handle('list-zip', async (_event, filePath) => {
+  const AdmZip = require('adm-zip');
+  const zip = new AdmZip(filePath);
+  return zip.getEntries()
+    .filter(e => !e.isDirectory)
+    .map(e => e.entryName)
+    .filter(name => /\.(log|txt|gz)$/i.test(name) || !/\./.test(path.basename(name)));
+});
+
+ipcMain.handle('read-zip-entry', async (_event, filePath, entryName) => {
+  const AdmZip = require('adm-zip');
+  const zip = new AdmZip(filePath);
+  const entry = zip.getEntry(entryName);
+  if (!entry) throw new Error(`Entry not found: ${entryName}`);
+  let data = entry.getData();
+  if (entryName.toLowerCase().endsWith('.gz')) {
+    data = await gunzip(data);
+  }
+  return data.toString('utf8');
+});
+
+// ── File watcher helpers ──────────────────────────────────────────────────
+// fs.watch is unreliable on Windows when the writer keeps the file handle
+// open continuously (e.g. a running server process).
+// fs.watchFile uses polling — slower by ~1 s but works in all cases.
+
+let watcherPath = null; // path currently being watched (for fs.unwatchFile)
+
+function stopWatcher() {
+  if (watcherPath) {
+    try { fs.unwatchFile(watcherPath); } catch {}
+    watcherPath = null;
+  }
+  if (watcher) {
+    try { watcher.close(); } catch {}
+    watcher = null;
+  }
+}
+
 ipcMain.on('watch-file', (event, filePath) => {
-  if (watcher) { watcher.close(); watcher = null; }
-  let lastSize = fs.statSync(filePath).size;
-  watcher = fs.watch(filePath, () => {
+  stopWatcher();
+  if (!filePath) return;
+
+  const ext = path.extname(filePath).toLowerCase();
+  const isGz = ext === '.gz';
+
+  // ── GZ: full reload on every change (can't do incremental) ──────────────
+  if (isGz) {
+    let lastSize;
+    try { lastSize = fs.statSync(filePath).size; } catch { return; }
+
+    watcherPath = filePath;
+    fs.watchFile(filePath, { persistent: true, interval: 800 }, async (curr) => {
+      try {
+        if (curr.size === lastSize) return;
+        lastSize = curr.size;
+        const compressed = fs.readFileSync(filePath);
+        const content = (await gunzip(compressed)).toString('utf8');
+        event.sender.send('file-changed', content);
+      } catch {}
+    });
+    return;
+  }
+
+  // ── Plain text: incremental — read only new bytes each poll ──────────────
+  let offset = 0;
+  let pending = '';
+  try { offset = fs.statSync(filePath).size; } catch { return; }
+
+  watcherPath = filePath;
+  fs.watchFile(filePath, { persistent: true, interval: 800 }, (curr) => {
     try {
-      const size = fs.statSync(filePath).size;
-      if (size === lastSize) return;
-      lastSize = size;
-      const content = fs.readFileSync(filePath, 'utf-8');
-      event.sender.send('file-changed', content);
+      const size = curr.size;
+
+      // File shrank → rotation/truncate: send full content and reset
+      if (size < offset) {
+        offset  = 0;
+        pending = '';
+        const content = fs.readFileSync(filePath, 'utf-8');
+        event.sender.send('file-changed', content);
+        offset = size;
+        return;
+      }
+
+      if (size === offset) return; // nothing new
+
+      // Read only the new bytes
+      const buf = Buffer.alloc(size - offset);
+      const fd  = fs.openSync(filePath, 'r');
+      fs.readSync(fd, buf, 0, buf.length, offset);
+      fs.closeSync(fd);
+      offset = size;
+
+      // Combine with leftover partial line from previous read
+      const chunk = pending + buf.toString('utf-8');
+
+      // Trim incomplete last line (not yet ended with \n)
+      const lastNL = chunk.lastIndexOf('\n');
+      if (lastNL === -1) {
+        pending = chunk;
+        return;
+      }
+      pending = chunk.slice(lastNL + 1);
+      const complete = chunk.slice(0, lastNL + 1);
+
+      if (complete.trim()) {
+        event.sender.send('file-appended', complete);
+      }
     } catch {}
   });
 });
 
-ipcMain.on('unwatch-file', () => {
-  if (watcher) { watcher.close(); watcher = null; }
+ipcMain.on('unwatch-file', () => { stopWatcher(); });
+
+ipcMain.handle('save-file', async (_event, text) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Зберегти логи',
+    defaultPath: 'selected_logs.txt',
+    filters: [
+      { name: 'Text files', extensions: ['txt', 'log'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || !result.filePath) return false;
+  fs.writeFileSync(result.filePath, text, 'utf-8');
+  return true;
 });
 
-app.whenReady().then(createWindow);
+ipcMain.on('open-diff', (_event, savedData) => {
+  if (diffWindow && !diffWindow.isDestroyed()) {
+    diffWindow.focus();
+    diffWindow.webContents.send('load-saved', savedData);
+    return;
+  }
+
+  diffWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 500,
+    title: 'Loki — JSON Diff',
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    backgroundColor: '#1e1e1e',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  diffWindow.loadFile(path.join(__dirname, 'src', 'diff.html'));
+  diffWindow.webContents.once('did-finish-load', () => {
+    diffWindow.webContents.send('load-saved', savedData);
+  });
+  diffWindow.on('closed', () => { diffWindow = null; });
+});
+
+// ── Settings file persistence ─────────────────────────────────────────────
+const SETTINGS_PATH = path.join(app.getPath('userData'), 'loki-settings.json');
+
+ipcMain.handle('load-settings', async () => {
+  try { return JSON.parse(await fs.promises.readFile(SETTINGS_PATH, 'utf-8')); }
+  catch { return null; }
+});
+
+ipcMain.handle('save-settings', async (_event, data) => {
+  try { await fs.promises.writeFile(SETTINGS_PATH, JSON.stringify(data, null, 2), 'utf-8'); }
+  catch (e) { console.error('save-settings:', e.message); }
+});
+
+app.whenReady().then(() => {
+  createWindow();
+  // Open file passed as CLI argument: npx electron . /path/to/file.log
+  const cliFile = process.argv.slice(2).find(a => !a.startsWith('--') && fs.existsSync(a));
+  if (cliFile) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => mainWindow.webContents.send('open-file-path', path.resolve(cliFile)), 300);
+    });
+  }
+});
 
 app.on('window-all-closed', () => {
   if (watcher) watcher.close();
