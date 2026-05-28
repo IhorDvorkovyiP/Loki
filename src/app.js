@@ -1867,4 +1867,163 @@ async function init() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// ── Share via GitHub Gist ─────────────────────────────────────────────────
+
+const WEB_BASE = 'https://ihordvorkovyip.github.io/Loki/';
+const SHARE_LIMIT = 8 * 1024 * 1024; // 8 MB max for Gist
+
+async function shareLog() {
+  if (!allLines.length) return;
+
+  const shareBtn = document.getElementById('share-btn');
+  const orig = shareBtn.textContent;
+  shareBtn.textContent = '⏳ Завантаження...';
+  shareBtn.disabled = true;
+
+  try {
+    // Use filtered lines if search/filters active, else all lines
+    const lines = filteredLines.length && filteredLines.length < allLines.length
+      ? filteredLines : allLines;
+    const content = lines.map(l => l.raw).join('\n');
+
+    if (content.length > SHARE_LIMIT) {
+      showShareResult(null, `Файл занадто великий (${(content.length/1024/1024).toFixed(1)} МБ > 8 МБ).\nВиділи потрібні рядки → "👁 Тільки ці" → Share`);
+      return;
+    }
+
+    const filename = (currentFilePath
+      ? currentFilePath.split(/[\\/]/).pop()
+      : 'loki-share.log').replace(/[^\w.-]/g, '_');
+
+    let gistId;
+
+    if (window.electronAPI?.createGist) {
+      // Electron: create via main process (has GitHub token)
+      const result = await window.electronAPI.createGist({ filename, content });
+      gistId = result.id;
+    } else {
+      // Web mode: can't create gist without token — show instructions
+      showShareResult(null, 'Share доступний тільки в Electron-додатку.\nВідкрий файл у Loki Desktop і натисни Share там.');
+      return;
+    }
+
+    const shareUrl = `${WEB_BASE}?gist=${gistId}`;
+    navigator.clipboard.writeText(shareUrl).catch(() => {});
+    showShareResult(shareUrl);
+
+  } catch (e) {
+    showShareResult(null, 'Помилка: ' + e.message);
+  } finally {
+    shareBtn.textContent = orig;
+    shareBtn.disabled = false;
+  }
+}
+
+function showShareResult(url, error) {
+  // Remove any existing modal
+  document.getElementById('share-modal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'share-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#252526;border:1px solid #3c3c3c;border-radius:8px;padding:24px 28px;min-width:360px;max-width:560px;display:flex;flex-direction:column;gap:12px;';
+
+  if (url) {
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:14px;font-weight:bold;color:#6ac26a;';
+    title.textContent = '✅ Посилання скопійовано!';
+    box.appendChild(title);
+
+    const hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px;color:#666;';
+    hint.textContent = 'Надішли це посилання — людина відкриє лог у браузері без встановлення Loki';
+    box.appendChild(hint);
+
+    const urlBox = document.createElement('div');
+    urlBox.style.cssText = 'background:#1e1e1e;border:1px solid #444;border-radius:4px;padding:8px 10px;font-size:11px;color:#9cdcfe;word-break:break-all;cursor:pointer;';
+    urlBox.textContent = url;
+    urlBox.title = 'Клікни щоб скопіювати';
+    urlBox.addEventListener('click', () => {
+      navigator.clipboard.writeText(url).then(() => {
+        urlBox.style.color = '#6ac26a';
+        setTimeout(() => { urlBox.style.color = '#9cdcfe'; }, 1000);
+      });
+    });
+    box.appendChild(urlBox);
+
+    const note = document.createElement('div');
+    note.style.cssText = 'font-size:10px;color:#555;';
+    note.textContent = '🔒 Secret gist — видно тільки тому, хто має посилання';
+    box.appendChild(note);
+  } else {
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:13px;color:#f48771;white-space:pre-line;';
+    title.textContent = error || 'Невідома помилка';
+    box.appendChild(title);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Закрити';
+  closeBtn.style.cssText = 'background:transparent;border:1px solid #555;color:#888;padding:5px 16px;border-radius:3px;cursor:pointer;font-family:inherit;align-self:flex-end;';
+  closeBtn.addEventListener('click', () => overlay.remove());
+  box.appendChild(closeBtn);
+
+  overlay.appendChild(box);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+// ── Load from URL parameter (?gist=ID) — web mode ────────────────────────
+
+async function loadFromUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const gistId = params.get('gist');
+  if (!gistId) return false;
+
+  // Show loading state
+  dropZone.innerHTML = '<div>⏳ Завантаження логу...</div>';
+  dropZone.classList.add('visible');
+
+  try {
+    const res  = await fetch(`https://api.github.com/gists/${gistId}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Get first file (or the .log file if multiple)
+    const files  = Object.values(data.files || {});
+    const target = files.find(f => /\.(log|txt)$/i.test(f.filename)) || files[0];
+    if (!target) throw new Error('No files in gist');
+
+    // Gist files can be truncated — use raw_url for large files
+    let content;
+    if (target.truncated) {
+      const rawRes = await fetch(target.raw_url);
+      content = await rawRes.text();
+    } else {
+      content = target.content;
+    }
+
+    loadText(content, target.filename);
+    // Update page title
+    document.title = `Loki — ${target.filename}`;
+    return true;
+  } catch (e) {
+    dropZone.innerHTML = `<div>❌ Не вдалось завантажити лог</div><div class="hint">${e.message}</div>`;
+    return false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await init();
+  // Wire up Share button
+  const shareBtn = document.getElementById('share-btn');
+  if (shareBtn) {
+    // Hide in web mode (can't create gists without token)
+    if (!window.electronAPI) shareBtn.style.display = 'none';
+    else shareBtn.addEventListener('click', shareLog);
+  }
+  // Load from URL params (web mode: ?gist=ID)
+  await loadFromUrlParams();
+});

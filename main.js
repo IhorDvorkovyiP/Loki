@@ -262,6 +262,59 @@ ipcMain.on('open-diff', (_event, savedData) => {
   diffWindow.on('closed', () => { diffWindow = null; });
 });
 
+// ── GitHub Gist sharing ───────────────────────────────────────────────────
+
+function getGitHubToken() {
+  try {
+    const { execFileSync } = require('child_process');
+    const out = execFileSync('git', ['credential', 'fill'], {
+      input: 'protocol=https\nhost=github.com\n\n',
+      timeout: 3000, encoding: 'utf8',
+    });
+    const m = out.match(/password=(.+)/);
+    return m ? m[1].trim() : null;
+  } catch { return null; }
+}
+
+ipcMain.handle('create-gist', async (_event, { filename, content }) => {
+  const token = getGitHubToken();
+  if (!token) throw new Error('NO_TOKEN');
+
+  const https = require('https');
+  const body  = JSON.stringify({
+    description: 'Loki log share',
+    public: false,   // secret gist — only accessible via link
+    files: { [filename]: { content } },
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.github.com',
+      path: '/gists',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Loki-app',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        try {
+          const r = JSON.parse(d);
+          if (r.id) resolve({ id: r.id, htmlUrl: r.html_url });
+          else reject(new Error(r.message || 'Gist API error'));
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+});
+
 // ── Settings file persistence ─────────────────────────────────────────────
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'loki-settings.json');
 
