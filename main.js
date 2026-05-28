@@ -324,15 +324,16 @@ async function ensureSharedLogsBranch(token) {
 }
 
 // ── Push pharmacy log ─────────────────────────────────────────────────────
-ipcMain.handle('push-log', async (_event, { pharmacyId, content }) => {
+ipcMain.handle('push-log', async (_event, { pharmacyId, content, label }) => {
   const token = getGitHubToken();
   if (!token) throw new Error('NO_TOKEN');
 
   await ensureSharedLogsBranch(token);
 
-  const filePath = `logs/${pharmacyId}.log`;
+  const ts = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
-  // Get current SHA if file exists (required for update)
+  // ── 1. Push the log file ──────────────────────────────────────────────────
+  const filePath = `logs/${pharmacyId}.log`;
   let sha;
   try {
     const existing = await ghRequest('GET',
@@ -341,13 +342,31 @@ ipcMain.handle('push-log', async (_event, { pharmacyId, content }) => {
   } catch { /* new file */ }
 
   const encoded = Buffer.from(content, 'utf-8').toString('base64');
-  const ts      = new Date().toISOString().slice(0, 16).replace('T', ' ');
-
   await ghRequest('PUT', `/repos/${SHARE_REPO}/contents/${filePath}`, token, {
     message: `log: ${pharmacyId} @ ${ts}`,
     content: encoded,
     branch:  SHARE_BRANCH,
     ...(sha ? { sha } : {}),
+  });
+
+  // ── 2. Update logs/index.json with label ──────────────────────────────────
+  const indexPath = 'logs/index.json';
+  let indexData = {};
+  let indexSha;
+  try {
+    const existing = await ghRequest('GET',
+      `/repos/${SHARE_REPO}/contents/${indexPath}?ref=${SHARE_BRANCH}`, token);
+    indexData = JSON.parse(Buffer.from(existing.content, 'base64').toString('utf-8'));
+    indexSha  = existing.sha;
+  } catch { /* first time */ }
+
+  indexData[pharmacyId] = { label: label || pharmacyId, updated: ts };
+
+  await ghRequest('PUT', `/repos/${SHARE_REPO}/contents/${indexPath}`, token, {
+    message: `index: ${pharmacyId} @ ${ts}`,
+    content: Buffer.from(JSON.stringify(indexData, null, 2), 'utf-8').toString('base64'),
+    branch:  SHARE_BRANCH,
+    ...(indexSha ? { sha: indexSha } : {}),
   });
 
   return { pharmacyId };

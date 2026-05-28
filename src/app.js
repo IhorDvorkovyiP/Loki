@@ -1898,16 +1898,30 @@ function showPushDialog() {
   // Pharmacy ID input
   const hint = document.createElement('div');
   hint.style.cssText = 'font-size:11px;color:#666;';
-  hint.textContent = 'ID аптеки (наприклад: CL2, CL212, Аптека-5)';
+  hint.textContent = 'ID аптеки (лише латиниця/цифри, напр: CL2, CL212)';
   box.appendChild(hint);
 
   const input = document.createElement('input');
   input.value = pharmacyId;
-  input.placeholder = 'Введи ID аптеки...';
+  input.placeholder = 'ID аптеки...';
   input.autocomplete = 'off';
   input.style.cssText = 'background:#1e1e1e;border:1px solid #555;color:#ccc;padding:7px 10px;border-radius:4px;font-family:inherit;font-size:13px;outline:none;';
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') labelInput.focus(); });
   box.appendChild(input);
+
+  // Label / description input
+  const labelHint = document.createElement('div');
+  labelHint.style.cssText = 'font-size:11px;color:#666;';
+  labelHint.textContent = 'Опис (довільний текст, буде видно в списку аптек)';
+  box.appendChild(labelHint);
+
+  const labelInput = document.createElement('input');
+  labelInput.value = '';
+  labelInput.placeholder = 'напр: Аптека 731 — проблема з чеком';
+  labelInput.autocomplete = 'off';
+  labelInput.style.cssText = 'background:#1e1e1e;border:1px solid #555;color:#ccc;padding:7px 10px;border-radius:4px;font-family:inherit;font-size:13px;outline:none;';
+  labelInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+  box.appendChild(labelInput);
 
   // Lines info
   const lines = filteredLines.length && filteredLines.length < allLines.length
@@ -1956,10 +1970,11 @@ function showPushDialog() {
     statusEl.style.color = '#666';
     statusEl.textContent = 'Підключення до GitHub...';
 
+    const label = labelInput.value.trim() || id;
     try {
-      await window.electronAPI.pushLog({ pharmacyId: id, content });
+      await window.electronAPI.pushLog({ pharmacyId: id, content, label });
       statusEl.style.color = '#6ac26a';
-      statusEl.textContent = `✅ Готово! Лог "${id}" доступний на сервері.`;
+      statusEl.textContent = `✅ Готово! "${label}" доступний на сервері.`;
       sendBtn.textContent = '✅ Відправлено';
       setTimeout(() => overlay.remove(), 2000);
     } catch (e) {
@@ -1979,7 +1994,52 @@ function showPushDialog() {
 
 // ── Web mode: pharmacy browser + ?pharmacy=ID loader ─────────────────────
 
-const API_FILES = `https://api.github.com/repos/${SHARE_REPO}/contents/logs?ref=shared-logs`;
+const API_FILES  = `https://api.github.com/repos/${SHARE_REPO}/contents/logs?ref=shared-logs`;
+const INDEX_URL  = `https://raw.githubusercontent.com/${SHARE_REPO}/shared-logs/logs/index.json`;
+
+// Fetch { id -> { label, updated } } index; falls back to {} on error
+async function fetchIndex() {
+  try {
+    const r = await fetch(INDEX_URL + '?t=' + Date.now());
+    if (!r.ok) return {};
+    return await r.json();
+  } catch { return {}; }
+}
+
+// Build chip list from file list + optional index labels
+function buildChips(container, logFiles, index, onSelect) {
+  container.innerHTML = '';
+  if (!logFiles.length) {
+    container.innerHTML = '<span style="color:#555;font-size:12px;">Поки що немає логів</span>';
+    return;
+  }
+  for (const f of logFiles) {
+    const id    = f.name.replace(/\.log$/i, '');
+    const meta  = index[id] || {};
+    const label = meta.label && meta.label !== id ? meta.label : id;
+    const ts    = meta.updated ? `\n${meta.updated}` : '';
+
+    const chip = document.createElement('button');
+    chip.title = `ID: ${id}${ts}`;
+    chip.style.cssText = 'background:#2d2d2d;border:1px solid #444;color:#9cdcfe;padding:6px 16px;border-radius:20px;cursor:pointer;font-family:inherit;font-size:13px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    chip.appendChild(labelSpan);
+
+    if (meta.updated) {
+      const tsSpan = document.createElement('span');
+      tsSpan.textContent = ' · ' + meta.updated;
+      tsSpan.style.cssText = 'font-size:10px;color:#666;margin-left:4px;';
+      chip.appendChild(tsSpan);
+    }
+
+    chip.addEventListener('mouseenter', () => { chip.style.background = '#0e639c'; chip.style.color = '#fff'; if (meta.updated) tsSpan && (tsSpan.style.color = '#aaa'); });
+    chip.addEventListener('mouseleave', () => { chip.style.background = '#2d2d2d'; chip.style.color = '#9cdcfe'; if (meta.updated) tsSpan && (tsSpan.style.color = '#666'); });
+    chip.addEventListener('click',       () => onSelect(id));
+    container.appendChild(chip);
+  }
+}
 
 async function loadFromUrlParams() {
   if (window.electronAPI) return false; // Electron: no URL params
@@ -2058,29 +2118,14 @@ function showPharmacyBrowser() {
   list.innerHTML = '<span style="color:#444;font-size:12px;">Завантаження...</span>';
   wrap.appendChild(list);
 
-  // Fetch available pharmacies from GitHub
-  fetch(API_FILES)
-    .then(r => r.json())
-    .then(files => {
-      list.innerHTML = '';
+  // Fetch available pharmacies + labels from GitHub
+  Promise.all([fetch(API_FILES).then(r => r.json()), fetchIndex()])
+    .then(([files, index]) => {
       const logFiles = Array.isArray(files) ? files.filter(f => f.name.endsWith('.log')) : [];
-      if (!logFiles.length) {
-        list.innerHTML = '<span style="color:#444;font-size:12px;">Поки що немає логів</span>';
-        return;
-      }
-      for (const f of logFiles) {
-        const id = f.name.replace(/\.log$/i, '');
-        const chip = document.createElement('button');
-        chip.textContent = id;
-        chip.style.cssText = 'background:#2d2d2d;border:1px solid #444;color:#9cdcfe;padding:6px 16px;border-radius:20px;cursor:pointer;font-family:inherit;font-size:13px;';
-        chip.addEventListener('mouseenter', () => { chip.style.background = '#0e639c'; chip.style.color = '#fff'; });
-        chip.addEventListener('mouseleave', () => { chip.style.background = '#2d2d2d'; chip.style.color = '#9cdcfe'; });
-        chip.addEventListener('click', () => {
-          window.history.pushState({}, '', `?pharmacy=${id}`);
-          loadPharmacyLog(id);
-        });
-        list.appendChild(chip);
-      }
+      buildChips(list, logFiles, index, id => {
+        window.history.pushState({}, '', `?pharmacy=${id}`);
+        loadPharmacyLog(id);
+      });
     })
     .catch(() => {
       list.innerHTML = '<span style="color:#444;font-size:12px;">Не вдалось завантажити список</span>';
@@ -2150,26 +2195,11 @@ function showGitHubBrowserModal() {
   goBtn.addEventListener('click', () => { const id = input.value.trim(); if (id) doLoad(id); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') goBtn.click(); });
 
-  // Fetch list
-  fetch(API_FILES)
-    .then(r => r.json())
-    .then(files => {
+  // Fetch list + labels
+  Promise.all([fetch(API_FILES).then(r => r.json()), fetchIndex()])
+    .then(([files, index]) => {
       const logFiles = Array.isArray(files) ? files.filter(f => f.name.endsWith('.log')) : [];
-      list.innerHTML = '';
-      if (!logFiles.length) {
-        list.innerHTML = '<span style="color:#555;font-size:12px;">Поки що немає логів</span>';
-        return;
-      }
-      for (const f of logFiles) {
-        const id = f.name.replace(/\.log$/i, '');
-        const chip = document.createElement('button');
-        chip.textContent = id;
-        chip.style.cssText = 'background:#2d2d2d;border:1px solid #444;color:#9cdcfe;padding:5px 14px;border-radius:16px;cursor:pointer;font-family:inherit;font-size:13px;';
-        chip.addEventListener('mouseenter', () => { chip.style.background = '#0e639c'; chip.style.color = '#fff'; });
-        chip.addEventListener('mouseleave', () => { chip.style.background = '#2d2d2d'; chip.style.color = '#9cdcfe'; });
-        chip.addEventListener('click', () => doLoad(id));
-        list.appendChild(chip);
-      }
+      buildChips(list, logFiles, index, id => doLoad(id));
     })
     .catch(() => { list.innerHTML = '<span style="color:#555;font-size:12px;">Не вдалось завантажити список</span>'; });
 
