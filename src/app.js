@@ -2089,21 +2089,122 @@ function showPharmacyBrowser() {
   dropZone.appendChild(wrap);
 }
 
+// ── Electron: load pharmacy log from GitHub via modal ────────────────────
+
+function showGitHubBrowserModal() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:9999;';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#252526;border:1px solid #444;border-radius:8px;padding:24px 28px;width:420px;max-width:94vw;display:flex;flex-direction:column;gap:14px;';
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:15px;font-weight:bold;color:#ccc;';
+  title.textContent = '☁️ Завантажити лог з GitHub';
+  box.appendChild(title);
+
+  // Manual ID input
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;';
+  const input = document.createElement('input');
+  input.placeholder = 'ID аптеки (CL2, CL212...)';
+  input.autocomplete = 'off';
+  input.style.cssText = 'flex:1;background:#1e1e1e;border:1px solid #555;color:#ccc;padding:7px 10px;border-radius:4px;font-family:inherit;font-size:13px;outline:none;';
+  const goBtn = document.createElement('button');
+  goBtn.textContent = 'Відкрити';
+  goBtn.style.cssText = 'background:#0e639c;border:none;color:#fff;padding:7px 14px;border-radius:4px;cursor:pointer;font-family:inherit;';
+  row.appendChild(input); row.appendChild(goBtn);
+  box.appendChild(row);
+
+  const listTitle = document.createElement('div');
+  listTitle.style.cssText = 'font-size:11px;color:#555;';
+  listTitle.textContent = 'Доступні аптеки:';
+  box.appendChild(listTitle);
+
+  const list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;min-height:32px;';
+  list.innerHTML = '<span style="color:#555;font-size:12px;">Завантаження...</span>';
+  box.appendChild(list);
+
+  const status = document.createElement('div');
+  status.style.cssText = 'font-size:12px;color:#666;min-height:16px;';
+  box.appendChild(status);
+
+  async function doLoad(id) {
+    overlay.remove();
+    status.textContent = '';
+    const statsEl = document.getElementById('stats');
+    if (statsEl) statsEl.textContent = `⏳ Завантаження ${id}...`;
+    try {
+      const url = `${RAW_BASE}${encodeURIComponent(id)}.log`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Лог "${id}" не знайдено (HTTP ${res.status})`);
+      const content = await res.text();
+      loadText(content, `${id}.log`);
+      document.title = `Loki — ${id}`;
+    } catch (e) {
+      if (statsEl) statsEl.textContent = `❌ ${e.message}`;
+    }
+  }
+
+  goBtn.addEventListener('click', () => { const id = input.value.trim(); if (id) doLoad(id); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') goBtn.click(); });
+
+  // Fetch list
+  fetch(API_FILES)
+    .then(r => r.json())
+    .then(files => {
+      const logFiles = Array.isArray(files) ? files.filter(f => f.name.endsWith('.log')) : [];
+      list.innerHTML = '';
+      if (!logFiles.length) {
+        list.innerHTML = '<span style="color:#555;font-size:12px;">Поки що немає логів</span>';
+        return;
+      }
+      for (const f of logFiles) {
+        const id = f.name.replace(/\.log$/i, '');
+        const chip = document.createElement('button');
+        chip.textContent = id;
+        chip.style.cssText = 'background:#2d2d2d;border:1px solid #444;color:#9cdcfe;padding:5px 14px;border-radius:16px;cursor:pointer;font-family:inherit;font-size:13px;';
+        chip.addEventListener('mouseenter', () => { chip.style.background = '#0e639c'; chip.style.color = '#fff'; });
+        chip.addEventListener('mouseleave', () => { chip.style.background = '#2d2d2d'; chip.style.color = '#9cdcfe'; });
+        chip.addEventListener('click', () => doLoad(id));
+        list.appendChild(chip);
+      }
+    })
+    .catch(() => { list.innerHTML = '<span style="color:#555;font-size:12px;">Не вдалось завантажити список</span>'; });
+
+  overlay.appendChild(box);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  setTimeout(() => input.focus(), 50);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await init();
+
   // Wire up Send button (Electron only)
   const shareBtn = document.getElementById('share-btn');
   if (shareBtn) {
     if (!window.electronAPI) {
       shareBtn.style.display = 'none'; // hidden in web mode
     } else {
-      // Restore saved pharmacy ID
       shareBtn.addEventListener('click', () => {
         if (!allLines.length) return;
         showPushDialog();
       });
     }
   }
+
+  // Wire up "З GitHub" button (Electron only)
+  const fetchBtn = document.getElementById('fetch-btn');
+  if (fetchBtn) {
+    if (!window.electronAPI) {
+      fetchBtn.style.display = 'none'; // visible only in Electron
+    } else {
+      fetchBtn.addEventListener('click', () => showGitHubBrowserModal());
+    }
+  }
+
   // Web mode: load by ?pharmacy=ID or show browser
   await loadFromUrlParams();
 });
