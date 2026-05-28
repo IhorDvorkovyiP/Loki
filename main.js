@@ -262,7 +262,10 @@ ipcMain.on('open-diff', (_event, savedData) => {
   diffWindow.on('closed', () => { diffWindow = null; });
 });
 
-// ── GitHub Gist sharing ───────────────────────────────────────────────────
+// ── GitHub sharing helpers ────────────────────────────────────────────────
+
+const SHARE_REPO   = 'IhorDvorkovyiP/Loki';
+const SHARE_BRANCH = 'shared-logs';
 
 function getGitHubToken() {
   try {
@@ -276,43 +279,78 @@ function getGitHubToken() {
   } catch { return null; }
 }
 
-ipcMain.handle('create-gist', async (_event, { filename, content }) => {
-  const token = getGitHubToken();
-  if (!token) throw new Error('NO_TOKEN');
-
+function ghRequest(method, path, token, body) {
   const https = require('https');
-  const body  = JSON.stringify({
-    description: 'Loki log share',
-    public: false,   // secret gist — only accessible via link
-    files: { [filename]: { content } },
-  });
-
   return new Promise((resolve, reject) => {
+    const bodyStr = body ? JSON.stringify(body) : null;
     const req = https.request({
       hostname: 'api.github.com',
-      path: '/gists',
-      method: 'POST',
+      path,
+      method,
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'User-Agent': 'Loki-app',
-        'Content-Length': Buffer.byteLength(body),
+        ...(bodyStr ? { 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
       },
     }, res => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => {
         try {
-          const r = JSON.parse(d);
-          if (r.id) resolve({ id: r.id, htmlUrl: r.html_url });
-          else reject(new Error(r.message || 'Gist API error'));
+          const r = d ? JSON.parse(d) : {};
+          if (res.statusCode >= 400) reject(new Error(r.message || `HTTP ${res.statusCode}`));
+          else resolve(r);
         } catch (e) { reject(e); }
       });
     });
     req.on('error', reject);
-    req.write(body);
+    if (bodyStr) req.write(bodyStr);
     req.end();
   });
+}
+
+async function ensureSharedLogsBranch(token) {
+  try {
+    await ghRequest('GET', `/repos/${SHARE_REPO}/branches/${SHARE_BRANCH}`, token);
+  } catch {
+    // Branch doesn't exist — create orphan from main
+    const main = await ghRequest('GET', `/repos/${SHARE_REPO}/git/ref/heads/main`, token);
+    await ghRequest('POST', `/repos/${SHARE_REPO}/git/refs`, token, {
+      ref: `refs/heads/${SHARE_BRANCH}`,
+      sha: main.object.sha,
+    });
+  }
+}
+
+// ── Push pharmacy log ─────────────────────────────────────────────────────
+ipcMain.handle('push-log', async (_event, { pharmacyId, content }) => {
+  const token = getGitHubToken();
+  if (!token) throw new Error('NO_TOKEN');
+
+  await ensureSharedLogsBranch(token);
+
+  const filePath = `logs/${pharmacyId}.log`;
+
+  // Get current SHA if file exists (required for update)
+  let sha;
+  try {
+    const existing = await ghRequest('GET',
+      `/repos/${SHARE_REPO}/contents/${filePath}?ref=${SHARE_BRANCH}`, token);
+    sha = existing.sha;
+  } catch { /* new file */ }
+
+  const encoded = Buffer.from(content, 'utf-8').toString('base64');
+  const ts      = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
+  await ghRequest('PUT', `/repos/${SHARE_REPO}/contents/${filePath}`, token, {
+    message: `log: ${pharmacyId} @ ${ts}`,
+    content: encoded,
+    branch:  SHARE_BRANCH,
+    ...(sha ? { sha } : {}),
+  });
+
+  return { pharmacyId };
 });
 
 // ── Settings file persistence ─────────────────────────────────────────────

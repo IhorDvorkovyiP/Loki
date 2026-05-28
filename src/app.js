@@ -851,6 +851,7 @@ function _doSave() {
     fontSize:        fontSize,
     colsLocked:      colsLocked,
     welcomeSeen:     true,
+    pharmacyId:      pharmacyId,
   };
 
   if (window.electronAPI?.saveSettings) {
@@ -895,6 +896,7 @@ async function loadAllSettings() {
     if (data.detailCollapsed) applyDetailCollapsed(true);
     if (data.fontSize) setFontSize(data.fontSize);
     if (data.colsLocked) applyColLock(true);
+    if (data.pharmacyId) pharmacyId = data.pharmacyId;
     return !!data.welcomeSeen;
   } else {
     // Fallback — localStorage
@@ -1867,163 +1869,240 @@ async function init() {
   });
 }
 
-// ── Share via GitHub Gist ─────────────────────────────────────────────────
+// ── Push log by pharmacy ID ───────────────────────────────────────────────
 
-const WEB_BASE = 'https://ihordvorkovyip.github.io/Loki/';
-const SHARE_LIMIT = 8 * 1024 * 1024; // 8 MB max for Gist
+const WEB_BASE   = 'https://ihordvorkovyip.github.io/Loki/';
+const SHARE_REPO = 'IhorDvorkovyiP/Loki';
+const RAW_BASE   = `https://raw.githubusercontent.com/${SHARE_REPO}/shared-logs/logs/`;
+const PUSH_LIMIT = 10 * 1024 * 1024; // 10 MB
 
-async function shareLog() {
-  if (!allLines.length) return;
+// Saved pharmacy ID (persisted in settings)
+let pharmacyId = '';
 
-  const shareBtn = document.getElementById('share-btn');
-  const orig = shareBtn.textContent;
-  shareBtn.textContent = '⏳ Завантаження...';
-  shareBtn.disabled = true;
-
-  try {
-    // Use filtered lines if search/filters active, else all lines
-    const lines = filteredLines.length && filteredLines.length < allLines.length
-      ? filteredLines : allLines;
-    const content = lines.map(l => l.raw).join('\n');
-
-    if (content.length > SHARE_LIMIT) {
-      showShareResult(null, `Файл занадто великий (${(content.length/1024/1024).toFixed(1)} МБ > 8 МБ).\nВиділи потрібні рядки → "👁 Тільки ці" → Share`);
-      return;
-    }
-
-    const filename = (currentFilePath
-      ? currentFilePath.split(/[\\/]/).pop()
-      : 'loki-share.log').replace(/[^\w.-]/g, '_');
-
-    let gistId;
-
-    if (window.electronAPI?.createGist) {
-      // Electron: create via main process (has GitHub token)
-      const result = await window.electronAPI.createGist({ filename, content });
-      gistId = result.id;
-    } else {
-      // Web mode: can't create gist without token — show instructions
-      showShareResult(null, 'Share доступний тільки в Electron-додатку.\nВідкрий файл у Loki Desktop і натисни Share там.');
-      return;
-    }
-
-    const shareUrl = `${WEB_BASE}?gist=${gistId}`;
-    navigator.clipboard.writeText(shareUrl).catch(() => {});
-    showShareResult(shareUrl);
-
-  } catch (e) {
-    showShareResult(null, 'Помилка: ' + e.message);
-  } finally {
-    shareBtn.textContent = orig;
-    shareBtn.disabled = false;
-  }
-}
-
-function showShareResult(url, error) {
-  // Remove any existing modal
-  document.getElementById('share-modal')?.remove();
+function showPushDialog() {
+  document.getElementById('push-dialog')?.remove();
 
   const overlay = document.createElement('div');
-  overlay.id = 'share-modal';
+  overlay.id = 'push-dialog';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;';
 
   const box = document.createElement('div');
-  box.style.cssText = 'background:#252526;border:1px solid #3c3c3c;border-radius:8px;padding:24px 28px;min-width:360px;max-width:560px;display:flex;flex-direction:column;gap:12px;';
+  box.style.cssText = 'background:#252526;border:1px solid #3c3c3c;border-radius:8px;padding:24px 28px;min-width:340px;display:flex;flex-direction:column;gap:14px;';
 
-  if (url) {
-    const title = document.createElement('div');
-    title.style.cssText = 'font-size:14px;font-weight:bold;color:#6ac26a;';
-    title.textContent = '✅ Посилання скопійовано!';
-    box.appendChild(title);
+  // Title
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:14px;font-weight:bold;color:#ccc;';
+  title.textContent = '📤 Відправити лог';
+  box.appendChild(title);
 
-    const hint = document.createElement('div');
-    hint.style.cssText = 'font-size:11px;color:#666;';
-    hint.textContent = 'Надішли це посилання — людина відкриє лог у браузері без встановлення Loki';
-    box.appendChild(hint);
+  // Pharmacy ID input
+  const hint = document.createElement('div');
+  hint.style.cssText = 'font-size:11px;color:#666;';
+  hint.textContent = 'ID аптеки (наприклад: CL2, CL212, Аптека-5)';
+  box.appendChild(hint);
 
-    const urlBox = document.createElement('div');
-    urlBox.style.cssText = 'background:#1e1e1e;border:1px solid #444;border-radius:4px;padding:8px 10px;font-size:11px;color:#9cdcfe;word-break:break-all;cursor:pointer;';
-    urlBox.textContent = url;
-    urlBox.title = 'Клікни щоб скопіювати';
-    urlBox.addEventListener('click', () => {
-      navigator.clipboard.writeText(url).then(() => {
-        urlBox.style.color = '#6ac26a';
-        setTimeout(() => { urlBox.style.color = '#9cdcfe'; }, 1000);
-      });
-    });
-    box.appendChild(urlBox);
+  const input = document.createElement('input');
+  input.value = pharmacyId;
+  input.placeholder = 'Введи ID аптеки...';
+  input.autocomplete = 'off';
+  input.style.cssText = 'background:#1e1e1e;border:1px solid #555;color:#ccc;padding:7px 10px;border-radius:4px;font-family:inherit;font-size:13px;outline:none;';
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+  box.appendChild(input);
 
-    const note = document.createElement('div');
-    note.style.cssText = 'font-size:10px;color:#555;';
-    note.textContent = '🔒 Secret gist — видно тільки тому, хто має посилання';
-    box.appendChild(note);
-  } else {
-    const title = document.createElement('div');
-    title.style.cssText = 'font-size:13px;color:#f48771;white-space:pre-line;';
-    title.textContent = error || 'Невідома помилка';
-    box.appendChild(title);
+  // Lines info
+  const lines = filteredLines.length && filteredLines.length < allLines.length
+    ? filteredLines : allLines;
+  const info = document.createElement('div');
+  info.style.cssText = 'font-size:11px;color:#555;';
+  info.textContent = `Буде відправлено: ${lines.length} рядків${filteredLines.length < allLines.length ? ' (поточний фільтр)' : ''}`;
+  box.appendChild(info);
+
+  // Buttons row
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Скасувати';
+  cancelBtn.style.cssText = 'background:transparent;border:1px solid #555;color:#888;padding:6px 16px;border-radius:3px;cursor:pointer;font-family:inherit;';
+  cancelBtn.addEventListener('click', () => overlay.remove());
+
+  const sendBtn = document.createElement('button');
+  sendBtn.textContent = '📤 Відправити';
+  sendBtn.style.cssText = 'background:#0e639c;border:none;color:#fff;padding:6px 18px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:bold;';
+
+  row.appendChild(cancelBtn);
+  row.appendChild(sendBtn);
+  box.appendChild(row);
+
+  const statusEl = document.createElement('div');
+  statusEl.style.cssText = 'font-size:12px;min-height:18px;';
+  box.appendChild(statusEl);
+
+  async function doSend() {
+    const id = input.value.trim();
+    if (!id) { input.style.borderColor = '#f48771'; return; }
+    pharmacyId = id;
+    saveAllSettings();
+
+    const content = lines.map(l => l.raw).join('\n');
+    if (content.length > PUSH_LIMIT) {
+      statusEl.style.color = '#f48771';
+      statusEl.textContent = `Занадто великий (${(content.length/1024/1024).toFixed(1)} МБ > 10 МБ). Застосуй фільтр спочатку.`;
+      return;
+    }
+
+    sendBtn.disabled = true;
+    sendBtn.textContent = '⏳ Відправлення...';
+    statusEl.style.color = '#666';
+    statusEl.textContent = 'Підключення до GitHub...';
+
+    try {
+      await window.electronAPI.pushLog({ pharmacyId: id, content });
+      statusEl.style.color = '#6ac26a';
+      statusEl.textContent = `✅ Готово! Лог "${id}" доступний на сервері.`;
+      sendBtn.textContent = '✅ Відправлено';
+      setTimeout(() => overlay.remove(), 2000);
+    } catch (e) {
+      statusEl.style.color = '#f48771';
+      statusEl.textContent = 'Помилка: ' + e.message;
+      sendBtn.disabled = false;
+      sendBtn.textContent = '📤 Відправити';
+    }
   }
 
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Закрити';
-  closeBtn.style.cssText = 'background:transparent;border:1px solid #555;color:#888;padding:5px 16px;border-radius:3px;cursor:pointer;font-family:inherit;align-self:flex-end;';
-  closeBtn.addEventListener('click', () => overlay.remove());
-  box.appendChild(closeBtn);
-
+  sendBtn.addEventListener('click', doSend);
   overlay.appendChild(box);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
+  setTimeout(() => input.focus(), 50);
 }
 
-// ── Load from URL parameter (?gist=ID) — web mode ────────────────────────
+// ── Web mode: pharmacy browser + ?pharmacy=ID loader ─────────────────────
+
+const API_FILES = `https://api.github.com/repos/${SHARE_REPO}/contents/logs?ref=shared-logs`;
 
 async function loadFromUrlParams() {
-  const params = new URLSearchParams(window.location.search);
-  const gistId = params.get('gist');
-  if (!gistId) return false;
+  if (window.electronAPI) return false; // Electron: no URL params
 
-  // Show loading state
-  dropZone.innerHTML = '<div>⏳ Завантаження логу...</div>';
+  const params     = new URLSearchParams(window.location.search);
+  const pharmacyParam = params.get('pharmacy');
+
+  if (pharmacyParam) {
+    // Direct load by pharmacy ID
+    await loadPharmacyLog(pharmacyParam);
+    return true;
+  }
+
+  // No params — show pharmacy browser on drop zone
+  showPharmacyBrowser();
+  return false;
+}
+
+async function loadPharmacyLog(id) {
+  dropZone.innerHTML = `<div>⏳ Завантаження логу <b>${id}</b>...</div>`;
   dropZone.classList.add('visible');
+  workspace.style.display = 'none';
 
   try {
-    const res  = await fetch(`https://api.github.com/gists/${gistId}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-
-    // Get first file (or the .log file if multiple)
-    const files  = Object.values(data.files || {});
-    const target = files.find(f => /\.(log|txt)$/i.test(f.filename)) || files[0];
-    if (!target) throw new Error('No files in gist');
-
-    // Gist files can be truncated — use raw_url for large files
-    let content;
-    if (target.truncated) {
-      const rawRes = await fetch(target.raw_url);
-      content = await rawRes.text();
-    } else {
-      content = target.content;
-    }
-
-    loadText(content, target.filename);
-    // Update page title
-    document.title = `Loki — ${target.filename}`;
-    return true;
+    const url = `${RAW_BASE}${encodeURIComponent(id)}.log`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Лог "${id}" не знайдено (HTTP ${res.status})`);
+    const content = await res.text();
+    loadText(content, `${id}.log`);
+    document.title = `Loki — ${id}`;
   } catch (e) {
-    dropZone.innerHTML = `<div>❌ Не вдалось завантажити лог</div><div class="hint">${e.message}</div>`;
-    return false;
+    dropZone.innerHTML = `<div>❌ ${e.message}</div><div class="hint"><a href="${WEB_BASE}" style="color:#4e9eff">← Назад до списку</a></div>`;
   }
+}
+
+function showPharmacyBrowser() {
+  dropZone.innerHTML = '';
+  dropZone.classList.add('visible');
+  workspace.style.display = 'none';
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;width:100%;max-width:480px;';
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:18px;color:#ccc;font-weight:bold;';
+  title.textContent = '⚡ Loki — Перегляд логів аптек';
+  wrap.appendChild(title);
+
+  // Search input
+  const searchRow = document.createElement('div');
+  searchRow.style.cssText = 'display:flex;gap:8px;width:100%;';
+  const searchInput = document.createElement('input');
+  searchInput.placeholder = 'Введи ID аптеки (CL2, CL212...)';
+  searchInput.autocomplete = 'off';
+  searchInput.style.cssText = 'flex:1;background:#1e1e1e;border:1px solid #555;color:#ccc;padding:8px 12px;border-radius:4px;font-family:inherit;font-size:13px;outline:none;';
+  const goBtn = document.createElement('button');
+  goBtn.textContent = 'Відкрити';
+  goBtn.style.cssText = 'background:#0e639c;border:none;color:#fff;padding:8px 16px;border-radius:4px;cursor:pointer;font-family:inherit;';
+  goBtn.addEventListener('click', () => {
+    const id = searchInput.value.trim();
+    if (id) { window.history.pushState({}, '', `?pharmacy=${id}`); loadPharmacyLog(id); }
+  });
+  searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') goBtn.click(); });
+  searchRow.appendChild(searchInput);
+  searchRow.appendChild(goBtn);
+  wrap.appendChild(searchRow);
+
+  // List of available pharmacies
+  const listTitle = document.createElement('div');
+  listTitle.style.cssText = 'font-size:11px;color:#555;align-self:flex-start;';
+  listTitle.textContent = 'Доступні аптеки:';
+  wrap.appendChild(listTitle);
+
+  const list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:center;';
+  list.innerHTML = '<span style="color:#444;font-size:12px;">Завантаження...</span>';
+  wrap.appendChild(list);
+
+  // Fetch available pharmacies from GitHub
+  fetch(API_FILES)
+    .then(r => r.json())
+    .then(files => {
+      list.innerHTML = '';
+      if (!Array.isArray(files) || !files.length) {
+        list.innerHTML = '<span style="color:#444;font-size:12px;">Поки що немає логів</span>';
+        return;
+      }
+      for (const f of files) {
+        const id = f.name.replace(/\.log$/i, '');
+        const chip = document.createElement('button');
+        chip.textContent = id;
+        chip.style.cssText = 'background:#2d2d2d;border:1px solid #444;color:#9cdcfe;padding:6px 16px;border-radius:20px;cursor:pointer;font-family:inherit;font-size:13px;';
+        chip.addEventListener('mouseenter', () => { chip.style.background = '#0e639c'; chip.style.color = '#fff'; });
+        chip.addEventListener('mouseleave', () => { chip.style.background = '#2d2d2d'; chip.style.color = '#9cdcfe'; });
+        chip.addEventListener('click', () => {
+          window.history.pushState({}, '', `?pharmacy=${id}`);
+          loadPharmacyLog(id);
+        });
+        list.appendChild(chip);
+      }
+    })
+    .catch(() => {
+      list.innerHTML = '<span style="color:#444;font-size:12px;">Не вдалось завантажити список</span>';
+    });
+
+  dropZone.appendChild(wrap);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
   await init();
-  // Wire up Share button
+  // Wire up Send button (Electron only)
   const shareBtn = document.getElementById('share-btn');
   if (shareBtn) {
-    // Hide in web mode (can't create gists without token)
-    if (!window.electronAPI) shareBtn.style.display = 'none';
-    else shareBtn.addEventListener('click', shareLog);
+    if (!window.electronAPI) {
+      shareBtn.style.display = 'none'; // hidden in web mode
+    } else {
+      // Restore saved pharmacy ID
+      shareBtn.addEventListener('click', () => {
+        if (!allLines.length) return;
+        showPushDialog();
+      });
+    }
   }
-  // Load from URL params (web mode: ?gist=ID)
+  // Web mode: load by ?pharmacy=ID or show browser
   await loadFromUrlParams();
 });

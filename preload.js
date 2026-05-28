@@ -41,5 +41,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onShowHelp:      (cb)          => ipcRenderer.on('show-help', cb),
   openDiff:      (data)          => ipcRenderer.send('open-diff', data),
   onLoadSaved:   (cb)            => ipcRenderer.on('load-saved', (_e, d) => cb(d)),
-  createGist:    (data)          => ipcRenderer.invoke('create-gist', data),
+  pushLog:       (data)          => ipcRenderer.invoke('push-log', data),
 });
