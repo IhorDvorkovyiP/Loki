@@ -2063,11 +2063,12 @@ function showPharmacyBrowser() {
     .then(r => r.json())
     .then(files => {
       list.innerHTML = '';
-      if (!Array.isArray(files) || !files.length) {
+      const logFiles = Array.isArray(files) ? files.filter(f => f.name.endsWith('.log')) : [];
+      if (!logFiles.length) {
         list.innerHTML = '<span style="color:#444;font-size:12px;">Поки що немає логів</span>';
         return;
       }
-      for (const f of files) {
+      for (const f of logFiles) {
         const id = f.name.replace(/\.log$/i, '');
         const chip = document.createElement('button');
         chip.textContent = id;
