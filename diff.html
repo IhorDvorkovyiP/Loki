@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loki — JSON Diff</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ── Diff window layout ────────────────────────────────────────────── */
+    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    #diff-toolbar {
+      background: #252526;
+      border-bottom: 1px solid #3c3c3c;
+      padding: 7px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    #diff-brand {
+      font-size: 14px;
+      font-weight: bold;
+      color: #E07B2A;
+      letter-spacing: 1px;
+      margin-right: 6px;
+      flex-shrink: 0;
+    }
+
+    .diff-select-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+    }
+    .diff-select-wrap label {
+      font-size: 12px;
+      color: #888;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .diff-select-wrap select {
+      flex: 1;
+      background: #3c3c3c;
+      border: 1px solid #555;
+      color: #d4d4d4;
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .diff-select-wrap select:focus { outline: none; border-color: #0e639c; }
+
+    .diff-arrow {
+      font-size: 18px;
+      color: #555;
+      flex-shrink: 0;
+    }
+
+    #diff-stats {
+      font-size: 11px;
+      color: #555;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* ── Workspace ─────────────────────────────────────────────────────── */
+    #diff-workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .diff-panel {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+      min-width: 0;
+    }
+    #left-panel  { border-right: 1px solid #3c3c3c; }
+
+    .diff-meta {
+      padding: 4px 12px;
+      font-size: 11px;
+      color: #666;
+      border-bottom: 1px solid #2a2a2a;
+      background: #222;
+      flex-shrink: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .diff-meta b { color: #9cdcfe; }
+
+    .diff-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding: 6px 0;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    /* ── Diff lines ────────────────────────────────────────────────────── */
+    .diff-line {
+      padding: 0 14px;
+      white-space: pre;
+      min-height: 19px;
+      font-family: Consolas, 'Courier New', monospace;
+    }
+    .diff-line.diff-del {
+      background: rgba(244, 71, 71, 0.18);
+      color: #f88;
+    }
+    .diff-line.diff-add {
+      background: rgba(78, 201, 78, 0.15);
+      color: #8d8;
+    }
+    .diff-line.diff-placeholder {
+      background: rgba(100, 100, 100, 0.06);
+      color: transparent;
+      border-left: 2px solid transparent;
+    }
+    .diff-line.diff-del::before    { content: '− '; color: #f44; opacity: 0.7; }
+    .diff-line.diff-add::before    { content: '+ '; color: #4d4; opacity: 0.7; }
+    .diff-line:not(.diff-del):not(.diff-add):not(.diff-placeholder)::before { content: '  '; }
+
+    /* ── Empty state ───────────────────────────────────────────────────── */
+    #empty-msg {
+      display: none;
+      flex: 1;
+      align-items: center;
+      justify-content: center;
+      color: #444;
+      font-size: 14px;
+    }
+    #empty-msg.show { display: flex; }
+  </style>
+</head>
+<body>
+  <div id="diff-toolbar">
+    <span id="diff-brand">⟺ JSON Diff</span>
+
+    <div class="diff-select-wrap">
+      <label>Зліва:</label>
+      <select id="left-select"><option>—</option></select>
+    </div>
+
+    <span class="diff-arrow">⟺</span>
+
+    <div class="diff-select-wrap">
+      <label>Справа:</label>
+      <select id="right-select"><option>—</option></select>
+    </div>
+
+    <span id="diff-stats"></span>
+  </div>
+
+  <div id="diff-workspace">
+    <div class="diff-panel" id="left-panel">
+      <div class="diff-meta" id="left-meta"></div>
+      <div class="diff-content" id="left-content"></div>
+    </div>
+    <div class="diff-panel" id="right-panel">
+      <div class="diff-meta" id="right-meta"></div>
+      <div class="diff-content" id="right-content"></div>
+    </div>
+  </div>
+
+  <div id="empty-msg" class="show">Збережіть 2+ записи в головному вікні, потім натисніть «⟺ Порівняти»</div>
+
+  <script type="module" src="diff.js"></script>
+</body>
+</html>
