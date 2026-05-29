@@ -268,6 +268,12 @@ const SHARE_REPO   = 'IhorDvorkovyiP/Loki';
 const SHARE_BRANCH = 'shared-logs';
 
 function getGitHubToken() {
+  // 1. Check saved settings first (set by user in Loki UI)
+  try {
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+    if (settings.ghToken) return settings.ghToken;
+  } catch {}
+  // 2. Fallback: git credential manager (works on dev machines)
   try {
     const { execFileSync } = require('child_process');
     const out = execFileSync('git', ['credential', 'fill'], {
@@ -368,6 +374,44 @@ ipcMain.handle('push-log', async (_event, { pharmacyId, content, label }) => {
     branch:  SHARE_BRANCH,
     ...(indexSha ? { sha: indexSha } : {}),
   });
+
+  return { pharmacyId };
+});
+
+// ── Delete pharmacy log ───────────────────────────────────────────────────
+ipcMain.handle('delete-log', async (_event, { pharmacyId }) => {
+  const token = getGitHubToken();
+  if (!token) throw new Error('NO_TOKEN');
+
+  // Delete logs/{id}.log
+  const logPath = `logs/${pharmacyId}.log`;
+  let logSha;
+  try {
+    const f = await ghRequest('GET',
+      `/repos/${SHARE_REPO}/contents/${logPath}?ref=${SHARE_BRANCH}`, token);
+    logSha = f.sha;
+  } catch { throw new Error(`Лог "${pharmacyId}" не знайдено`); }
+
+  await ghRequest('DELETE', `/repos/${SHARE_REPO}/contents/${logPath}`, token, {
+    message: `delete: ${pharmacyId}`,
+    sha:     logSha,
+    branch:  SHARE_BRANCH,
+  });
+
+  // Remove entry from index.json
+  const indexPath = 'logs/index.json';
+  try {
+    const existing = await ghRequest('GET',
+      `/repos/${SHARE_REPO}/contents/${indexPath}?ref=${SHARE_BRANCH}`, token);
+    const indexData = JSON.parse(Buffer.from(existing.content, 'base64').toString('utf-8'));
+    delete indexData[pharmacyId];
+    await ghRequest('PUT', `/repos/${SHARE_REPO}/contents/${indexPath}`, token, {
+      message: `index: remove ${pharmacyId}`,
+      content: Buffer.from(JSON.stringify(indexData, null, 2), 'utf-8').toString('base64'),
+      branch:  SHARE_BRANCH,
+      sha:     existing.sha,
+    });
+  } catch { /* index update is optional */ }
 
   return { pharmacyId };
 });

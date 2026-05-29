@@ -42,4 +42,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDiff:      (data)          => ipcRenderer.send('open-diff', data),
   onLoadSaved:   (cb)            => ipcRenderer.on('load-saved', (_e, d) => cb(d)),
   pushLog:       (data)          => ipcRenderer.invoke('push-log', data),
+  deleteLog:     (data)          => ipcRenderer.invoke('delete-log', data),
 });

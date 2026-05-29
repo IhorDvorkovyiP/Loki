@@ -852,6 +852,7 @@ function _doSave() {
     colsLocked:      colsLocked,
     welcomeSeen:     true,
     pharmacyId:      pharmacyId,
+    ghToken:         ghToken,
   };
 
   if (window.electronAPI?.saveSettings) {
@@ -897,6 +898,7 @@ async function loadAllSettings() {
     if (data.fontSize) setFontSize(data.fontSize);
     if (data.colsLocked) applyColLock(true);
     if (data.pharmacyId) pharmacyId = data.pharmacyId;
+    if (data.ghToken)    ghToken    = data.ghToken;
     return !!data.welcomeSeen;
   } else {
     // Fallback — localStorage
@@ -1876,8 +1878,9 @@ const SHARE_REPO = 'IhorDvorkovyiP/Loki';
 const RAW_BASE   = `https://raw.githubusercontent.com/${SHARE_REPO}/shared-logs/logs/`;
 const PUSH_LIMIT = 10 * 1024 * 1024; // 10 MB
 
-// Saved pharmacy ID (persisted in settings)
+// Saved pharmacy ID + GitHub token (persisted in settings)
 let pharmacyId = '';
+let ghToken    = '';
 
 function showPushDialog() {
   document.getElementById('push-dialog')?.remove();
@@ -2007,7 +2010,8 @@ async function fetchIndex() {
 }
 
 // Build chip list from file list + optional index labels
-function buildChips(container, logFiles, index, onSelect) {
+// onDelete: if provided, shows 🗑 button on each chip
+function buildChips(container, logFiles, index, onSelect, onDelete) {
   container.innerHTML = '';
   if (!logFiles.length) {
     container.innerHTML = '<span style="color:#555;font-size:12px;">Поки що немає логів</span>';
@@ -2017,27 +2021,41 @@ function buildChips(container, logFiles, index, onSelect) {
     const id    = f.name.replace(/\.log$/i, '');
     const meta  = index[id] || {};
     const label = meta.label && meta.label !== id ? meta.label : id;
-    const ts    = meta.updated ? `\n${meta.updated}` : '';
+    const ts    = meta.updated ? ` · ${meta.updated}` : '';
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:inline-flex;align-items:center;gap:0;';
 
     const chip = document.createElement('button');
-    chip.title = `ID: ${id}${ts}`;
-    chip.style.cssText = 'background:#2d2d2d;border:1px solid #444;color:#9cdcfe;padding:6px 16px;border-radius:20px;cursor:pointer;font-family:inherit;font-size:13px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    chip.title = `ID: ${id}${ts ? '\n' + meta.updated : ''}`;
+    const delRadius = onDelete ? '20px 0 0 20px' : '20px';
+    chip.style.cssText = `background:#2d2d2d;border:1px solid #444;border-right:${onDelete ? 'none' : '1px solid #444'};color:#9cdcfe;padding:6px 14px;border-radius:${delRadius};cursor:pointer;font-family:inherit;font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
 
-    const labelSpan = document.createElement('span');
-    labelSpan.textContent = label;
-    chip.appendChild(labelSpan);
-
-    if (meta.updated) {
+    chip.textContent = label;
+    if (ts) {
       const tsSpan = document.createElement('span');
-      tsSpan.textContent = ' · ' + meta.updated;
+      tsSpan.textContent = ts;
       tsSpan.style.cssText = 'font-size:10px;color:#666;margin-left:4px;';
       chip.appendChild(tsSpan);
     }
 
-    chip.addEventListener('mouseenter', () => { chip.style.background = '#0e639c'; chip.style.color = '#fff'; if (meta.updated) tsSpan && (tsSpan.style.color = '#aaa'); });
-    chip.addEventListener('mouseleave', () => { chip.style.background = '#2d2d2d'; chip.style.color = '#9cdcfe'; if (meta.updated) tsSpan && (tsSpan.style.color = '#666'); });
-    chip.addEventListener('click',       () => onSelect(id));
-    container.appendChild(chip);
+    chip.addEventListener('mouseenter', () => { chip.style.background = '#0e639c'; chip.style.color = '#fff'; });
+    chip.addEventListener('mouseleave', () => { chip.style.background = '#2d2d2d'; chip.style.color = '#9cdcfe'; });
+    chip.addEventListener('click', () => onSelect(id));
+    wrap.appendChild(chip);
+
+    if (onDelete) {
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '🗑';
+      delBtn.title = `Видалити лог "${label}" з сервера`;
+      delBtn.style.cssText = 'background:#2d2d2d;border:1px solid #444;color:#666;padding:6px 8px;border-radius:0 20px 20px 0;cursor:pointer;font-size:11px;line-height:1;';
+      delBtn.addEventListener('mouseenter', () => { delBtn.style.background = '#8b1a1a'; delBtn.style.color = '#fff'; });
+      delBtn.addEventListener('mouseleave', () => { delBtn.style.background = '#2d2d2d'; delBtn.style.color = '#666'; });
+      delBtn.addEventListener('click', (e) => { e.stopPropagation(); onDelete(id, label, wrap); });
+      wrap.appendChild(delBtn);
+    }
+
+    container.appendChild(wrap);
   }
 }
 
@@ -2195,14 +2213,140 @@ function showGitHubBrowserModal() {
   goBtn.addEventListener('click', () => { const id = input.value.trim(); if (id) doLoad(id); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') goBtn.click(); });
 
-  // Fetch list + labels
+  // Fetch list + labels; Electron gets delete buttons
+  const onDel = window.electronAPI
+    ? (id, label, el) => confirmDeleteLog(id, label, el, list)
+    : null;
+
   Promise.all([fetch(API_FILES).then(r => r.json()), fetchIndex()])
     .then(([files, index]) => {
       const logFiles = Array.isArray(files) ? files.filter(f => f.name.endsWith('.log')) : [];
-      buildChips(list, logFiles, index, id => doLoad(id));
+      buildChips(list, logFiles, index, id => doLoad(id), onDel);
     })
     .catch(() => { list.innerHTML = '<span style="color:#555;font-size:12px;">Не вдалось завантажити список</span>'; });
 
+  overlay.appendChild(box);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  setTimeout(() => input.focus(), 50);
+}
+
+// ── Delete log with confirmation ──────────────────────────────────────────
+
+async function confirmDeleteLog(id, label, chipEl, listContainer) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10000;';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#252526;border:1px solid #555;border-radius:8px;padding:22px 26px;max-width:360px;display:flex;flex-direction:column;gap:14px;';
+
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:13px;color:#ccc;';
+  msg.innerHTML = `Видалити лог <b style="color:#f48771">${label}</b> з сервера?<br><span style="font-size:11px;color:#666;">Це незворотня дія. Колеги більше не побачать цей лог.</span>`;
+  box.appendChild(msg);
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Скасувати';
+  cancelBtn.style.cssText = 'background:transparent;border:1px solid #555;color:#888;padding:6px 14px;border-radius:3px;cursor:pointer;font-family:inherit;';
+  cancelBtn.onclick = () => overlay.remove();
+
+  const delBtn = document.createElement('button');
+  delBtn.textContent = '🗑 Видалити';
+  delBtn.style.cssText = 'background:#8b1a1a;border:none;color:#fff;padding:6px 14px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:bold;';
+
+  delBtn.onclick = async () => {
+    delBtn.disabled = true;
+    delBtn.textContent = '⏳...';
+    try {
+      await window.electronAPI.deleteLog({ pharmacyId: id });
+      overlay.remove();
+      chipEl.remove();
+      // If list is now empty, show placeholder
+      if (listContainer && !listContainer.querySelector('button')) {
+        listContainer.innerHTML = '<span style="color:#555;font-size:12px;">Поки що немає логів</span>';
+      }
+    } catch (e) {
+      delBtn.disabled = false;
+      delBtn.textContent = '🗑 Видалити';
+      msg.innerHTML += `<br><span style="color:#f48771;font-size:11px;">Помилка: ${e.message}</span>`;
+    }
+  };
+
+  row.appendChild(cancelBtn); row.appendChild(delBtn);
+  box.appendChild(row);
+  overlay.appendChild(box);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+// ── GitHub token settings dialog ──────────────────────────────────────────
+
+function showTokenDialog() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:9999;';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#252526;border:1px solid #3c3c3c;border-radius:8px;padding:24px 28px;width:420px;display:flex;flex-direction:column;gap:12px;';
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:14px;font-weight:bold;color:#ccc;';
+  title.textContent = '🔑 GitHub токен';
+  box.appendChild(title);
+
+  const hint = document.createElement('div');
+  hint.style.cssText = 'font-size:11px;color:#666;line-height:1.5;';
+  hint.innerHTML = 'Потрібен для кнопок "Відправити" та "Видалити".<br>Створи <b>fine-grained token</b> на <a href="https://github.com/settings/tokens" style="color:#4e9eff;" onclick="return false;">github.com/settings/tokens</a> з дозволом <b>Contents: Read and Write</b> для репо <b>IhorDvorkovyiP/Loki</b>.';
+  box.appendChild(hint);
+
+  const input = document.createElement('input');
+  input.type = 'password';
+  input.value = ghToken;
+  input.placeholder = 'github_pat_...';
+  input.autocomplete = 'off';
+  input.style.cssText = 'background:#1e1e1e;border:1px solid #555;color:#ccc;padding:7px 10px;border-radius:4px;font-family:monospace;font-size:12px;outline:none;';
+  box.appendChild(input);
+
+  const showRow = document.createElement('div');
+  showRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+  const showChk = document.createElement('input');
+  showChk.type = 'checkbox';
+  showChk.id = 'token-show';
+  showChk.addEventListener('change', () => { input.type = showChk.checked ? 'text' : 'password'; });
+  const showLbl = document.createElement('label');
+  showLbl.htmlFor = 'token-show';
+  showLbl.textContent = 'Показати токен';
+  showLbl.style.cssText = 'font-size:11px;color:#666;cursor:pointer;';
+  showRow.appendChild(showChk); showRow.appendChild(showLbl);
+  box.appendChild(showRow);
+
+  const status = document.createElement('div');
+  status.style.cssText = 'font-size:11px;min-height:14px;';
+  box.appendChild(status);
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+
+  const clearBtn = document.createElement('button');
+  clearBtn.textContent = 'Очистити';
+  clearBtn.style.cssText = 'background:transparent;border:1px solid #555;color:#888;padding:6px 12px;border-radius:3px;cursor:pointer;font-family:inherit;';
+  clearBtn.onclick = () => { input.value = ''; };
+
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Зберегти';
+  saveBtn.style.cssText = 'background:#0e639c;border:none;color:#fff;padding:6px 16px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:bold;';
+  saveBtn.onclick = () => {
+    ghToken = input.value.trim();
+    saveAllSettings();
+    status.style.color = '#6ac26a';
+    status.textContent = ghToken ? '✅ Токен збережено' : '✅ Токен очищено';
+    setTimeout(() => overlay.remove(), 1200);
+  };
+
+  row.appendChild(clearBtn); row.appendChild(saveBtn);
+  box.appendChild(row);
   overlay.appendChild(box);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
@@ -2229,9 +2373,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const fetchBtn = document.getElementById('fetch-btn');
   if (fetchBtn) {
     if (!window.electronAPI) {
-      fetchBtn.style.display = 'none'; // visible only in Electron
+      fetchBtn.style.display = 'none';
     } else {
       fetchBtn.addEventListener('click', () => showGitHubBrowserModal());
+    }
+  }
+
+  // Wire up token button (Electron only)
+  const tokenBtn = document.getElementById('token-btn');
+  if (tokenBtn) {
+    if (!window.electronAPI) {
+      tokenBtn.style.display = 'none';
+    } else {
+      tokenBtn.addEventListener('click', () => showTokenDialog());
     }
   }
 
