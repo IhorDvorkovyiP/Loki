@@ -8,7 +8,8 @@ const BUFFER = 60;
 // ── State ────────────────────────────────────────────────────────────────
 let allLines      = [];
 let filteredLines = [];
-let activeLevels  = new Set(['INFO', 'ERROR', 'WARN']);
+const ALL_LEVELS  = ['INFO', 'ERROR', 'WARN', 'DEBUG'];
+let activeLevels  = new Set(ALL_LEVELS);
 let activeComps   = new Set(['HTTP', 'SLAVE', 'BUS', 'FRONT', 'MASTER', 'OTHER']);
 let searchQuery   = '';
 let searchRe      = null;
@@ -650,10 +651,10 @@ function setLiveMode(on) {
 function handleLevelToggle(btn) {
   const lvl = btn.dataset.level;
   if (soloLevel === lvl) {
-    activeLevels = new Set(['INFO', 'ERROR', 'WARN']);
+    activeLevels = new Set(ALL_LEVELS);
     soloLevel = null;
     document.querySelectorAll('.toggle-btn[data-level]').forEach(b => b.classList.add('active'));
-  } else if (activeLevels.size === 3 || soloLevel) {
+  } else if (activeLevels.size === ALL_LEVELS.length || soloLevel) {
     activeLevels = new Set([lvl]);
     soloLevel = lvl;
     document.querySelectorAll('.toggle-btn[data-level]').forEach(b => {
