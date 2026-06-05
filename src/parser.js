@@ -1,6 +1,6 @@
 // ── Log line parser ──────────────────────────────────────────────────────
 
-const LINE_RE = /^(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2})\s+(INFO|ERROR|DEBUG|WARN)\s+(#[a-f0-9-]+):\s+(?:(HTTP|SLAVE|BUS|FRONT|MASTER|SQL)\s+)?(?:(>>>|<--|<<|>>|>|<)\s+)?(.*)$/;
+const LINE_RE = /^(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2})\s+(INFO|ERROR|DEBUG|WARN)\s+(#[a-f0-9-]*):\s+(?:(HTTP|SLAVE|BUS|FRONT|MASTER|SQL)\s+)?(?:(>>>|<--|<<|>>|>|<)\s+)?(.*)$/;
 
 /**
  * Parse a full log text into an array of log entry objects.
