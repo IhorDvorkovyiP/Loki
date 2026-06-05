@@ -10,7 +10,7 @@ let allLines      = [];
 let filteredLines = [];
 const ALL_LEVELS  = ['INFO', 'ERROR', 'WARN', 'DEBUG'];
 let activeLevels  = new Set(ALL_LEVELS);
-let activeComps   = new Set(['HTTP', 'SLAVE', 'BUS', 'FRONT', 'MASTER', 'OTHER']);
+let activeComps   = new Set(['HTTP', 'SLAVE', 'BUS', 'FRONT', 'MASTER', 'SQL', 'OTHER']);
 let searchQuery   = '';
 let searchRe      = null;
 let highlightedTrace = '';   // підсвічений trace (не фільтрує, тільки колір)
@@ -669,7 +669,7 @@ function handleLevelToggle(btn) {
   scheduleRender();
 }
 
-const ALL_COMPS = ['HTTP', 'SLAVE', 'BUS', 'FRONT', 'MASTER', 'OTHER'];
+const ALL_COMPS = ['HTTP', 'SLAVE', 'BUS', 'FRONT', 'MASTER', 'SQL', 'OTHER'];
 
 function handleCompToggle(btn) {
   const comp = btn.dataset.comp;
