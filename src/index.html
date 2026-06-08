@@ -96,7 +96,7 @@
     <div id="welcome-modal">
       <div id="welcome-header">
         <span id="welcome-logo">⚡ Loki</span>
-        <span id="welcome-subtitle">v3.0 · Переглядач лог-файлів</span>
+        <span id="welcome-subtitle">v4.0 · Переглядач лог-файлів</span>
       </div>
       <div id="welcome-body">
 
@@ -108,7 +108,7 @@
             <div class="wr"><b>▾</b> поруч з "Відкрити" — нещодавні файли (до 10 штук)</div>
             <div class="wr"><b>+</b> у вкладках — відкрити у новій вкладці</div>
             <div class="wr">Формати: <code>.log</code> <code>.txt</code> <code>.gz</code> <code>.zip</code></div>
-            <div class="wr">ZIP з кількома файлами — з'явиться список для вибору</div>
+            <div class="wr">ZIP з кількома файлами — список для вибору або <b>📂 Відкрити всі</b> у вкладках одразу</div>
           </div>
         </div>
 
@@ -132,6 +132,7 @@
             <div class="wr">Лічильник <b>N збігів · pos/N</b> — показує позицію у результатах</div>
             <div class="wr"><b>INFO / ERROR / WARN</b> — клік = соло-режим, повторний = всі</div>
             <div class="wr"><b>⊘ Виключити</b> — прибрати рядки що містять певний текст (через кому кілька)</div>
+            <div class="wr"><b>☑ / ☐</b> на чіпі — тимчасово вимкнути виключення не видаляючи його</div>
             <div class="wr">Виключення зберігаються між сесіями</div>
           </div>
         </div>
@@ -207,6 +208,20 @@
             <div class="wr"><b>+</b> — відкрити файл у новій вкладці</div>
             <div class="wr">Кожна вкладка зберігає: файл, скрол, виділений рядок, live-стан, закладки</div>
             <div class="wr"><b>×</b> на вкладці — закрити (остання вкладка просто скидається)</div>
+            <div class="wr"><b>🖥️</b> server лог &nbsp;|&nbsp; <b>🔑</b> keeper лог — іконка визначається автоматично</div>
+          </div>
+        </div>
+
+        <div class="wg" style="border-color:#E07B2A55;background:rgba(224,123,42,0.06);">
+          <div class="wg-title" style="color:#E07B2A;">🆕 Що нового у v4.0</div>
+          <div class="wg-rows">
+            <div class="wr"><b>🌙 / ☀️ Темна / світла тема</b> — кнопка в тулбарі, зберігається між сесіями</div>
+            <div class="wr"><b>🖥️ / 🔑 Авто-детекція типу логу</b> — server або keeper визначається за вмістом файлу</div>
+            <div class="wr"><b>☑ Чекбокси виключень</b> — вимикай фільтр тимчасово без видалення</div>
+            <div class="wr"><b>📂 Відкрити всі з ZIP</b> — кожен файл відкривається в окремій вкладці</div>
+            <div class="wr"><b>DEBUG</b> рівень — повна підтримка з кнопкою фільтра</div>
+            <div class="wr"><b>SQL</b> компонент — розпізнається і фільтрується окремо</div>
+            <div class="wr">Фікс парсера: стартові рядки з порожнім trace ID більше не злипаються</div>
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 {
   "name": "log-viewer",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "Pharmbase server log viewer",
   "main": "main.js",
   "scripts": {
