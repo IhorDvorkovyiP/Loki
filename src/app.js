@@ -48,6 +48,9 @@ let rowHeights = []; // per-row heights in wrap mode (empty otherwise)
 // Column lock
 let colsLocked = false;
 
+// Theme
+let lightMode = false;
+
 // Font size
 let fontSize = 12.5; // px
 const FONT_MIN = 9, FONT_MAX = 20;
@@ -100,6 +103,7 @@ const exportSelectedBtn = document.getElementById('export-selected-btn');
 const clearSelectionBtn = document.getElementById('clear-selection-btn');
 const recentBtn         = document.getElementById('recent-btn');
 const wrapBtn           = document.getElementById('wrap-btn');
+const themeBtn          = document.getElementById('theme-btn');
 
 // ── Filtering ────────────────────────────────────────────────────────────
 
@@ -851,6 +855,7 @@ function _doSave() {
     detailCollapsed: detailCollapsed,
     fontSize:        fontSize,
     colsLocked:      colsLocked,
+    lightMode:       lightMode,
     welcomeSeen:     true,
   };
 
@@ -863,6 +868,7 @@ function _doSave() {
   localStorage.setItem('loki-exclude',          JSON.stringify(excludeTerms));
   localStorage.setItem('loki-detail-collapsed', detailCollapsed ? '1' : '0');
   localStorage.setItem('loki-cols-locked',      colsLocked      ? '1' : '0');
+  localStorage.setItem('loki-light-mode',       lightMode       ? '1' : '0');
   localStorage.setItem('loki-welcome-seen',     '1');
 }
 
@@ -896,6 +902,7 @@ async function loadAllSettings() {
     if (data.detailCollapsed) applyDetailCollapsed(true);
     if (data.fontSize) setFontSize(data.fontSize);
     if (data.colsLocked) applyColLock(true);
+    if (data.lightMode) applyTheme(true);
     return !!data.welcomeSeen;
   } else {
     // Fallback — localStorage
@@ -907,6 +914,8 @@ async function loadAllSettings() {
     if (sc === '1') applyDetailCollapsed(true);
     const lc = localStorage.getItem('loki-cols-locked');
     if (lc === '1') applyColLock(true);
+    const lt = localStorage.getItem('loki-light-mode');
+    if (lt === '1') applyTheme(true);
     return localStorage.getItem('loki-welcome-seen') === '1';
   }
 }
@@ -1525,6 +1534,17 @@ function toggleColLock() {
   saveAllSettings();
 }
 
+function applyTheme(light) {
+  lightMode = light;
+  document.body.classList.toggle('light-mode', lightMode);
+  if (themeBtn) themeBtn.textContent = lightMode ? '☀️' : '🌙';
+}
+
+function toggleTheme() {
+  applyTheme(!lightMode);
+  saveAllSettings();
+}
+
 function toggleWrap() {
   wrapMode = !wrapMode;
   ROW_H = computeROW_H();
@@ -1777,8 +1797,9 @@ async function init() {
   copyJsonBtn.addEventListener('click', copyJsonToClipboard);
   copyRawBtn.addEventListener('click', copyRawToClipboard);
 
-  if (recentBtn) recentBtn.addEventListener('click', (e) => { e.stopPropagation(); showRecentMenu(); });
-  if (wrapBtn)   wrapBtn.addEventListener('click', toggleWrap);
+  if (recentBtn)  recentBtn.addEventListener('click', (e) => { e.stopPropagation(); showRecentMenu(); });
+  if (wrapBtn)    wrapBtn.addEventListener('click', toggleWrap);
+  if (themeBtn)   themeBtn.addEventListener('click', toggleTheme);
 
   const colLockBtn = document.getElementById('col-lock-btn');
   if (colLockBtn) colLockBtn.addEventListener('click', toggleColLock);
