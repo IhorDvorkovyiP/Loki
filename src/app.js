@@ -113,11 +113,20 @@ function detectLogType(filePath, lines) {
     if (fp.includes('keeper')) return 'keeper';
     if (fp.includes('primary') || fp.includes('server')) return 'server';
   }
-  // Fallback: scan first 80 parsed lines, count components
-  const serverComps = new Set(['HTTP', 'SQL', 'BUS', 'FRONT', 'MASTER', 'SLAVE']);
+  // Fallback: scan first 80 parsed lines
+  // HTTP / SQL / SLAVE — є тільки в server логах, не в keeper
+  const serverOnlyComps = new Set(['HTTP', 'SQL', 'SLAVE']);
   const sample = lines.slice(0, 80);
   for (const line of sample) {
-    if (line.comp && serverComps.has(line.comp)) return 'server';
+    if (line.comp && serverOnlyComps.has(line.comp)) return 'server';
+  }
+  // Keeper-специфічні патерни в body
+  for (const line of sample) {
+    if (line.body && (
+      line.body.includes('is-update-ready') ||
+      line.body.includes('server.online') ||
+      line.body.includes('browser.activated')
+    )) return 'keeper';
   }
   return null;
 }
