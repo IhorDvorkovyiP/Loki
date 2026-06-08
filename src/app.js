@@ -35,7 +35,7 @@ let showOnlySelected = false;
 let lastClickFiltIdx = -1;         // for Shift+click range selection
 
 // Exclusion filter
-let excludeTerms = []; // array of strings to exclude
+let excludeTerms = []; // array of {text: string, enabled: boolean}
 
 // Bookmarks
 let bookmarkedLineIds = new Set();
@@ -105,6 +105,23 @@ const recentBtn         = document.getElementById('recent-btn');
 const wrapBtn           = document.getElementById('wrap-btn');
 const themeBtn          = document.getElementById('theme-btn');
 
+// ── Log type detection ────────────────────────────────────────────────────
+
+function detectLogType(filePath, lines) {
+  if (filePath) {
+    const fp = filePath.toLowerCase();
+    if (fp.includes('primary') || fp.includes('server')) return 'server';
+    if (fp.includes('keeper')) return 'keeper';
+  }
+  // Fallback: scan first 80 parsed lines, count components
+  const serverComps = new Set(['HTTP', 'SQL', 'BUS', 'FRONT', 'MASTER', 'SLAVE']);
+  const sample = lines.slice(0, 80);
+  for (const line of sample) {
+    if (line.comp && serverComps.has(line.comp)) return 'server';
+  }
+  return null;
+}
+
 // ── Filtering ────────────────────────────────────────────────────────────
 
 function buildSearchRe(q) {
@@ -151,7 +168,7 @@ function recomputeRowTops() {
 }
 
 function recomputeFiltered() {
-  const excLower = excludeTerms.map(t => t.toLowerCase());
+  const excLower = excludeTerms.filter(t => t.enabled).map(t => t.text.toLowerCase());
   filteredLines = allLines.filter(l =>
     activeLevels.has(l.level) &&
     activeComps.has(l.comp) &&
@@ -393,7 +410,7 @@ function clearTraceHighlight() {
 
 // ── File loading ──────────────────────────────────────────────────────────
 
-function loadText(text, filePath) {
+function loadText(text, filePath, labelOverride = null) {
   allLines = parseLines(text);
   currentFilePath = filePath || null;
   selectedIdx = -1;
@@ -411,7 +428,8 @@ function loadText(text, filePath) {
   // Update active tab label + recent list
   const _t = tabs.find(t => t.id === activeTabId);
   if (_t) {
-    _t.label    = filePath ? filePath.split(/[\\/]/).pop() : 'Log';
+    _t.logType  = detectLogType(filePath, allLines);
+    _t.label    = labelOverride || (filePath ? filePath.split(/[\\/]/).pop() : 'Log');
     _t.filePath = currentFilePath;
     updateTabBar();
   }
@@ -454,7 +472,7 @@ function liveAppend(newText) {
   allLines = allLines.concat(newLines);
 
   // Додаємо нові рядки у filteredLines якщо вони відповідають фільтру
-  const excLower = excludeTerms.map(t => t.toLowerCase());
+  const excLower = excludeTerms.filter(t => t.enabled).map(t => t.text.toLowerCase());
   const toAdd = newLines.filter(l =>
     activeLevels.has(l.level) &&
     activeComps.has(l.comp) &&
@@ -561,6 +579,40 @@ function showZipPicker(filePath, entries, errorMsg) {
     hint.style.cssText = 'color:#666;font-size:11px;flex-shrink:0;';
     hint.textContent = 'Оберіть файл для відкриття:';
     modal.appendChild(hint);
+
+    const openAllBtn = document.createElement('button');
+    openAllBtn.style.cssText = [
+      'background:#0e639c;border:none;color:#fff;',
+      'padding:5px 14px;border-radius:3px;cursor:pointer;',
+      'font-family:inherit;font-size:12px;flex-shrink:0;align-self:flex-start;',
+    ].join('');
+    openAllBtn.textContent = '📂 Відкрити всі';
+    openAllBtn.addEventListener('click', async () => {
+      overlay.remove();
+      // Open first entry in current tab
+      try {
+        const text0 = await window.electronAPI.readZipEntry(filePath, entries[0]);
+        loadText(text0, null, entries[0]);
+      } catch (e) { console.error('readZipEntry error', e); }
+      // Open remaining entries each in a new tab
+      for (let i = 1; i < entries.length; i++) {
+        try {
+          const txt = await window.electronAPI.readZipEntry(filePath, entries[i]);
+          saveActiveTab();
+          _tabCtr++;
+          const tab = makeTab(_tabCtr, entries[i]);
+          tabs.push(tab);
+          activeTabId = tab.id;
+          allLines = [];
+          currentFilePath = null;
+          selectedIdx = -1;
+          bookmarkedLineIds = new Set();
+          updateTabBar();
+          loadText(txt, null, entries[i]);
+        } catch (e) { console.error('readZipEntry error', e); }
+      }
+    });
+    modal.appendChild(openAllBtn);
 
     const list = document.createElement('div');
     list.style.cssText = 'overflow-y:auto;display:flex;flex-direction:column;gap:3px;';
@@ -893,7 +945,7 @@ async function loadAllSettings() {
       applyColVisibility();
     }
     if (data.excludeTerms) {
-      excludeTerms = data.excludeTerms;
+      excludeTerms = data.excludeTerms.map(t => typeof t === 'string' ? { text: t, enabled: true } : t);
       updateExcludeBtn();
     }
     if (data.recent) {
@@ -1147,16 +1199,23 @@ function saveExcludeTerms() { saveAllSettings(); }
 function loadExcludeTerms() {
   try {
     const saved = localStorage.getItem('loki-exclude');
-    if (saved) excludeTerms = JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      excludeTerms = parsed.map(t => typeof t === 'string' ? { text: t, enabled: true } : t);
+    }
   } catch {}
 }
 
 function updateExcludeBtn() {
   const excludeBtn = document.getElementById('exclude-btn');
   if (!excludeBtn) return;
+  const enabledCount = excludeTerms.filter(t => t.enabled).length;
   if (excludeTerms.length > 0) {
     excludeBtn.classList.add('has-excludes');
-    excludeBtn.textContent = `⊘ Виключити (${excludeTerms.length})`;
+    const label = enabledCount === excludeTerms.length
+      ? `⊘ Виключити (${excludeTerms.length})`
+      : `⊘ Виключити (${enabledCount}/${excludeTerms.length})`;
+    excludeBtn.textContent = label;
   } else {
     excludeBtn.classList.remove('has-excludes');
     excludeBtn.textContent = '⊘ Виключити';
@@ -1208,13 +1267,28 @@ function initExcludePanel() {
         return;
       }
       for (let i = 0; i < excludeTerms.length; i++) {
+        const term = excludeTerms[i];
         const chip = document.createElement('div');
         chip.className = 'exclude-chip';
+        if (!term.enabled) chip.style.opacity = '0.45';
+
+        const tog = document.createElement('button');
+        tog.className = 'exclude-chip-remove';
+        tog.style.cssText = 'font-size:13px;margin-right:2px;';
+        tog.textContent = term.enabled ? '☑' : '☐';
+        tog.title = term.enabled ? 'Вимкнути' : 'Увімкнути';
+        tog.addEventListener('click', () => {
+          excludeTerms[i].enabled = !excludeTerms[i].enabled;
+          saveExcludeTerms();
+          updateExcludeBtn();
+          recomputeFiltered(); clearRendered(); scheduleRender();
+          renderChips();
+        });
 
         const txt = document.createElement('span');
         txt.className = 'exclude-chip-text';
-        txt.textContent = excludeTerms[i];
-        txt.title = excludeTerms[i];
+        txt.textContent = term.text;
+        txt.title = term.text;
 
         const rm = document.createElement('button');
         rm.className = 'exclude-chip-remove';
@@ -1229,6 +1303,7 @@ function initExcludePanel() {
           if (clearAllBtn) clearAllBtn.style.display = excludeTerms.length ? 'block' : 'none';
         });
 
+        chip.appendChild(tog);
         chip.appendChild(txt);
         chip.appendChild(rm);
         chips.appendChild(chip);
@@ -1242,7 +1317,7 @@ function initExcludePanel() {
       // Support comma-separated input
       const parts = val.split(',').map(s => s.trim()).filter(Boolean);
       for (const p of parts) {
-        if (!excludeTerms.includes(p)) excludeTerms.push(p);
+        if (!excludeTerms.some(t => t.text === p)) excludeTerms.push({ text: p, enabled: true });
       }
       input.value = '';
       saveExcludeTerms();
@@ -1602,7 +1677,7 @@ function showRecentMenu() {
 // ── File tabs ─────────────────────────────────────────────────────────────
 
 function makeTab(id, label) {
-  return { id, label: label || 'Новий', filePath: null, allLines: [], selectedIdx: -1, scrollTop: 0, liveMode: false, bookmarks: new Set() };
+  return { id, label: label || 'Новий', filePath: null, logType: null, allLines: [], selectedIdx: -1, scrollTop: 0, liveMode: false, bookmarks: new Set() };
 }
 
 function saveActiveTab() {
@@ -1687,7 +1762,8 @@ function updateTabBar() {
     el.className = 'file-tab' + (tab.id === activeTabId ? ' active' : '');
     const lbl = document.createElement('span');
     lbl.className   = 'file-tab-label';
-    lbl.textContent = tab.label;
+    const prefix = tab.logType === 'server' ? '🖥️ ' : tab.logType === 'keeper' ? '🔑 ' : '';
+    lbl.textContent = prefix + tab.label;
     lbl.title       = tab.filePath || '';
     el.appendChild(lbl);
     const cls = document.createElement('button');
