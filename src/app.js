@@ -110,8 +110,8 @@ const themeBtn          = document.getElementById('theme-btn');
 function detectLogType(filePath, lines) {
   if (filePath) {
     const fp = filePath.toLowerCase();
-    if (fp.includes('primary') || fp.includes('server')) return 'server';
     if (fp.includes('keeper')) return 'keeper';
+    if (fp.includes('primary') || fp.includes('server')) return 'server';
   }
   // Fallback: scan first 80 parsed lines, count components
   const serverComps = new Set(['HTTP', 'SQL', 'BUS', 'FRONT', 'MASTER', 'SLAVE']);
